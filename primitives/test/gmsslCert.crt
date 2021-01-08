@@ -1,0 +1,50 @@
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 532802458 (0x1fc1eb9a)
+    Signature Algorithm: sm2sign-with-sm3
+        Issuer: C=cn, ST=zhejiang, L=hangzhou, O=cn, OU=cn, CN=hsiaojan
+        Validity
+            Not Before: Mar 19 04:30:40 2020 GMT
+            Not After : Mar 19 04:30:40 2021 GMT
+        Subject: C=cn, ST=zhejiang, O=cn, OU=cn, CN=hsiaojan
+        Subject Public Key Info:
+            Public Key Algorithm: id-ecPublicKey
+                Public-Key: (256 bit)
+                pub:
+                    04:02:c3:c9:88:a1:fa:ad:06:87:52:20:62:24:2b:
+                    8d:48:9c:b0:77:ae:ac:52:08:ac:99:00:99:a7:0d:
+                    14:e3:e1:78:d3:ba:db:a4:f7:b7:a1:a5:af:46:49:
+                    2c:76:c1:76:61:77:21:cb:59:a4:7e:77:69:d3:16:
+                    66:31:18:68:e9
+                ASN1 OID: sm2p256v1
+                NIST CURVE: SM2
+        X509v3 extensions:
+            X509v3 Basic Constraints: 
+                CA:FALSE
+            Netscape Comment: 
+                OpenSSL Generated Certificate
+            X509v3 Subject Key Identifier: 
+                B8:08:74:61:0D:1F:F1:41:21:9F:1D:18:D9:67:FD:F6:21:97:E1:DF
+            X509v3 Authority Key Identifier: 
+                keyid:22:B9:AD:E2:9B:4A:BD:CB:B9:EF:3B:F8:E7:D1:40:7F:6D:1A:A2:23
+
+    Signature Algorithm: sm2sign-with-sm3
+         30:44:02:20:5a:68:45:5f:c2:58:58:bd:6a:91:8b:96:0f:05:
+         bf:a6:d4:45:e1:85:67:cf:63:04:cb:19:83:12:99:15:3c:a8:
+         02:20:11:c1:ce:ae:59:8f:b7:8e:f8:5f:c8:0f:8e:1f:17:3d:
+         85:63:e6:b7:38:f9:65:d6:92:1c:f3:d2:f4:a3:9a:3b
+-----BEGIN CERTIFICATE-----
+MIICGTCCAcCgAwIBAgIEH8HrmjAKBggqgRzPVQGDdTBgMQswCQYDVQQGEwJjbjER
+MA8GA1UECAwIemhlamlhbmcxETAPBgNVBAcMCGhhbmd6aG91MQswCQYDVQQKDAJj
+bjELMAkGA1UECwwCY24xETAPBgNVBAMMCGhzaWFvamFuMB4XDTIwMDMxOTA0MzA0
+MFoXDTIxMDMxOTA0MzA0MFowTTELMAkGA1UEBhMCY24xETAPBgNVBAgMCHpoZWpp
+YW5nMQswCQYDVQQKDAJjbjELMAkGA1UECwwCY24xETAPBgNVBAMMCGhzaWFvamFu
+MFkwEwYHKoZIzj0CAQYIKoEcz1UBgi0DQgAEAsPJiKH6rQaHUiBiJCuNSJywd66s
+UgismQCZpw0U4+F407rbpPe3oaWvRkksdsF2YXchy1mkfndp0xZmMRho6aN7MHkw
+CQYDVR0TBAIwADAsBglghkgBhvhCAQ0EHxYdT3BlblNTTCBHZW5lcmF0ZWQgQ2Vy
+dGlmaWNhdGUwHQYDVR0OBBYEFLgIdGENH/FBIZ8dGNln/fYhl+HfMB8GA1UdIwQY
+MBaAFCK5reKbSr3Lue87+OfRQH9tGqIjMAoGCCqBHM9VAYN1A0cAMEQCIFpoRV/C
+WFi9apGLlg8Fv6bUReGFZ89jBMsZgxKZFTyoAiARwc6uWY+3jvhfyA+OHxc9hWPm
+tzj5ZdaSHPPS9KOaOw==
+-----END CERTIFICATE-----

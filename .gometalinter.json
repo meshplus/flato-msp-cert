@@ -1,0 +1,11 @@
+{
+  "Enable": [
+    "test"
+  ],
+  "Linters": {
+    "gosec": {
+      "Command": "gosec -exclude=G502,G104",
+      "tips":"G502 表示不允许使用des，G104表示审计错误未检测"
+    }
+  }
+}
