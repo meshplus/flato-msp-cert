@@ -18,10 +18,11 @@ func TestGetIdentityNameFromString(t *testing.T) {
 }
 
 func TestGetIdentityNameFromPKIXName(t *testing.T) {
-	certificate, _, err := NewSelfSignedCert("Hyperchain", "www.hyperchan.cn", "ecert", x509.CurveTypeP256, time.Now(),
+	engine := getEngine(t)
+	certificate, _, err := NewSelfSignedCert(engine, "Hyperchain", "www.hyperchan.cn", "ecert", x509.CurveTypeP256, time.Now(),
 		time.Now().Add(time.Hour))
 	assert.Nil(t, err)
-	cert, err := ParseCertificate(certificate)
+	cert, err := ParseCertificate(engine, certificate)
 	assert.Nil(t, err)
 	idName := GetIdentityNameFromPKIXName(cert.Issuer)
 	assert.Equal(t, &IdentityName{O: "Hyperchain", CN: "www.hyperchan.cn", GN: "ecert", SerialNumber: ""}, idName)

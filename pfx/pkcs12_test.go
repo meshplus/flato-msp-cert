@@ -5,12 +5,10 @@
 package pkcs12
 
 import (
-	"crypto"
 	"crypto/rand"
-	"crypto/rsa"
 	"encoding/asn1"
-	"encoding/base64"
-	gm "github.com/meshplus/crypto-gm"
+	"github.com/meshplus/crypto"
+	"github.com/meshplus/flato-msp-cert/plugin"
 	"github.com/meshplus/flato-msp-cert/primitives"
 	gmx509 "github.com/meshplus/flato-msp-cert/primitives/x509"
 	"github.com/meshplus/flato-msp-cert/primitives/x509/pkix"
@@ -38,18 +36,11 @@ func TestUnmarshal(t *testing.T) {
 func TestDecode(t *testing.T) {
 	var (
 		err                error
-		privKeySM          *gm.SM2PrivateKey
 		signatureAlgorithm gmx509.SignatureAlgorithm
-		privKey            crypto.Signer
-		pubKey             interface{}
+		privKey            crypto.SignKey
 	)
-	privKeySM, err = gm.GenerateSM2Key()
-	if err != nil {
-		return
-	}
+	_, privKey, _ = plugin.GetCryptoEngine().CreateSignKey(false, crypto.Sm2p256v1)
 	signatureAlgorithm = gmx509.SM3WithSM2
-	privKey = privKeySM
-	pubKey = privKeySM.Public()
 	testExtKeyUsage := []gmx509.ExtKeyUsage{gmx509.ExtKeyUsageClientAuth, gmx509.ExtKeyUsageServerAuth}
 	testUnknownExtKeyUsage := []asn1.ObjectIdentifier{[]int{1, 2, 3}, []int{2, 59, 1}}
 	Subject := pkix.Name{
@@ -81,12 +72,13 @@ func TestDecode(t *testing.T) {
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 	}
-	cert, err := gmx509.CreateCertificate(rand.Reader, &template, &template, pubKey, privKey)
+	engine := plugin.GetSoftwareEngine("")
+	cert, err := gmx509.CreateCertificate(rand.Reader, &template, &template, privKey, privKey)
 
 	if err != nil {
 		return
 	}
-	ca, _ := gmx509.ParseCertificate(cert)
+	ca, _ := gmx509.ParseCertificate(engine, cert)
 	pfxdata, err := Encode(rand.Reader, privKey, ca, nil, "")
 	if err != nil {
 		return
@@ -96,25 +88,6 @@ func TestDecode(t *testing.T) {
 		return
 	}
 	assert.NotNil(t, pri)
-}
-
-func TestPfx(t *testing.T) {
-	for commonName, base64P12 := range testdata {
-		p12, _ := base64.StdEncoding.DecodeString(base64P12)
-
-		priv, cert, err := Decode(p12, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if err := priv.(*rsa.PrivateKey).Validate(); err != nil {
-			t.Errorf("error while validating private key: %v", err)
-		}
-
-		if cert.Subject.CommonName != commonName {
-			t.Errorf("expected common name to be %q, but found %q", commonName, cert.Subject.CommonName)
-		}
-	}
 }
 
 func TestGetSafeContentsError(t *testing.T) {
@@ -128,12 +101,15 @@ func TestDecodeChainError(t *testing.T) {
 }
 
 func TestEncodeError(t *testing.T) {
-	certificate, key, err := primitives.NewSelfSignedCert("", "", "", "p256",
+	engine := plugin.GetSoftwareEngine("")
+	certificate, key, err := primitives.NewSelfSignedCert(engine, "", "", "", "p256",
 		time.Now(), time.Now().Add(time.Hour))
 	assert.Nil(t, err)
-	cert, err := primitives.ParseCertificate(certificate)
+	cert, err := primitives.ParseCertificate(engine, certificate)
 	assert.Nil(t, err)
-	_, err = Encode(rand.Reader, key.(crypto.Signer), cert, nil, "")
+	vk, err := engine.GetSignKey(key, crypto.None)
+	assert.Nil(t, err)
+	_, err = Encode(rand.Reader, vk, cert, nil, "")
 	assert.Nil(t, err)
 }
 

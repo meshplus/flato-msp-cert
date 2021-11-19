@@ -11,7 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
-	"github.com/meshplus/crypto-standard/asym"
+	"github.com/meshplus/crypto"
 	"github.com/meshplus/flato-msp-cert/primitives/x509/pkix"
 	"io/ioutil"
 	"math/big"
@@ -1657,10 +1657,9 @@ var nameConstraintsTests = []nameConstraintsTest{
 	},
 }
 
-func makeConstraintsCACert(constraints constraintsSpec, name string, key *asym.ECDSAPrivateKey, parent *Certificate, parentKey *asym.ECDSAPrivateKey) (*Certificate, error) {
+func makeConstraintsCACert(engine crypto.Engine, constraints constraintsSpec, name string, key crypto.VerifyKey, parent *Certificate, parentKey crypto.SignKey) (*Certificate, error) {
 	var serialBytes [16]byte
 	_, _ = rand.Read(serialBytes[:])
-
 	template := &Certificate{
 		SerialNumber: new(big.Int).SetBytes(serialBytes[:]),
 		Subject: pkix.Name{
@@ -1680,12 +1679,12 @@ func makeConstraintsCACert(constraints constraintsSpec, name string, key *asym.E
 	if parent == nil {
 		parent = template
 	}
-	derBytes, err := CreateCertificate(rand.Reader, template, parent, &key.ECDSAPublicKey, parentKey)
+	derBytes, err := CreateCertificate(rand.Reader, template, parent, key, parentKey)
 	if err != nil {
 		return nil, err
 	}
 
-	caCert, err := ParseCertificate(derBytes)
+	caCert, err := ParseCertificate(engine, derBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -1693,7 +1692,7 @@ func makeConstraintsCACert(constraints constraintsSpec, name string, key *asym.E
 	return caCert, nil
 }
 
-func makeConstraintsLeafCert(leaf leafSpec, key *asym.ECDSAPrivateKey, parent *Certificate, parentKey *asym.ECDSAPrivateKey) (*Certificate, error) {
+func makeConstraintsLeafCert(engine crypto.Engine, leaf leafSpec, key crypto.SignKey, parent *Certificate, parentKey crypto.SignKey) (*Certificate, error) {
 	var serialBytes [16]byte
 	_, _ = rand.Read(serialBytes[:])
 
@@ -1772,12 +1771,12 @@ func makeConstraintsLeafCert(leaf leafSpec, key *asym.ECDSAPrivateKey, parent *C
 		parent = template
 	}
 
-	derBytes, err := CreateCertificate(rand.Reader, template, parent, &key.ECDSAPublicKey, parentKey)
+	derBytes, err := CreateCertificate(rand.Reader, template, parent, key, parentKey)
 	if err != nil {
 		return nil, err
 	}
 
-	return ParseCertificate(derBytes)
+	return ParseCertificate(engine, derBytes)
 }
 
 func customConstraintsExtension(typeNum int, constraint []byte, isExcluded bool) pkix.Extension {
@@ -1904,14 +1903,15 @@ func parseEKUs(ekuStrs []string) (ekus []ExtKeyUsage, unknowns []asn1.ObjectIden
 	return
 }
 
+//todo need mock
 func TestConstraintCases(t *testing.T) {
 	defer func(savedIgnoreCN bool) {
 		ignoreCN = savedIgnoreCN
 	}(ignoreCN)
-
+	engine := getEngine(t)
 	privateKeys := sync.Pool{
 		New: func() interface{} {
-			priv, err := asym.GenerateKey(asym.AlgoP256R1)
+			_, priv, err := engine.CreateSignKey(false, crypto.Secp256k1)
 			if err != nil {
 				panic(err)
 			}
@@ -1921,12 +1921,12 @@ func TestConstraintCases(t *testing.T) {
 
 	for i, test := range nameConstraintsTests {
 		rootPool := NewCertPool()
-		rootKey := privateKeys.Get().(*asym.ECDSAPrivateKey)
+		rootKey := privateKeys.Get().(crypto.SignKey)
 		rootName := "Root " + strconv.Itoa(i)
 
 		// keys keeps track of all the private keys used in a given
 		// test and puts them back in the privateKeys pool at the end.
-		keys := []*asym.ECDSAPrivateKey{rootKey}
+		keys := []crypto.SignKey{rootKey}
 
 		// At each level (root, intermediate(s), leaf), parent points to
 		// an example parent certificate and parentKey the key for the
@@ -1938,7 +1938,7 @@ func TestConstraintCases(t *testing.T) {
 		parentKey := rootKey
 
 		for _, root := range test.roots {
-			rootCert, err := makeConstraintsCACert(root, rootName, rootKey, nil, rootKey)
+			rootCert, err := makeConstraintsCACert(engine, root, rootName, rootKey, nil, rootKey)
 			if err != nil {
 				t.Fatalf("#%d: failed to create root: %s", i, err)
 			}
@@ -1950,13 +1950,13 @@ func TestConstraintCases(t *testing.T) {
 		intermediatePool := NewCertPool()
 
 		for level, intermediates := range test.intermediates {
-			levelKey := privateKeys.Get().(*asym.ECDSAPrivateKey)
+			levelKey := privateKeys.Get().(crypto.SignKey)
 			keys = append(keys, levelKey)
 			levelName := "Intermediate level " + strconv.Itoa(level)
 			var last *Certificate
 
 			for _, intermediate := range intermediates {
-				caCert, err := makeConstraintsCACert(intermediate, levelName, levelKey, parent, parentKey)
+				caCert, err := makeConstraintsCACert(engine, intermediate, levelName, levelKey, parent, parentKey)
 				if err != nil {
 					t.Fatalf("#%d: failed to create %q: %s", i, levelName, err)
 				}
@@ -1969,10 +1969,10 @@ func TestConstraintCases(t *testing.T) {
 			parentKey = levelKey
 		}
 
-		leafKey := privateKeys.Get().(*asym.ECDSAPrivateKey)
+		leafKey := privateKeys.Get().(crypto.SignKey)
 		keys = append(keys, leafKey)
 
-		leafCert, err := makeConstraintsLeafCert(test.leaf, leafKey, parent, parentKey)
+		leafCert, err := makeConstraintsLeafCert(engine, test.leaf, leafKey, parent, parentKey)
 		if err != nil {
 			t.Fatalf("#%d: cannot create leaf: %s", i, err)
 		}
@@ -2155,7 +2155,9 @@ func TestRFC2821Parsing(t *testing.T) {
 	}
 }
 
+//todo need mock
 func TestBadNamesInConstraints(t *testing.T) {
+	engine := getEngine(t)
 	constraintParseError := func(err error) bool {
 		str := err.Error()
 		return strings.Contains(str, "failed to parse ") && strings.Contains(str, "constraint")
@@ -2181,13 +2183,13 @@ func TestBadNamesInConstraints(t *testing.T) {
 		{"uri:not–hyphen.com", encodingError},
 	}
 
-	priv, err := asym.GenerateKey(asym.AlgoP256R1)
+	_, priv, err := engine.CreateSignKey(false, crypto.Secp256r1)
 	if err != nil {
 		panic(err)
 	}
 
 	for _, test := range badNames {
-		_, err := makeConstraintsCACert(constraintsSpec{
+		_, err := makeConstraintsCACert(engine, constraintsSpec{
 			ok: []string{test.name},
 		}, "TestAbsoluteNamesInConstraints", priv, nil, priv)
 
@@ -2211,14 +2213,14 @@ func TestBadNamesInSANs(t *testing.T) {
 		"invalidip:0102",
 		"invalidip:0102030405",
 	}
-
-	priv, err := asym.GenerateKey(asym.AlgoP256R1)
+	engine := getEngine(t)
+	_, priv, err := engine.CreateSignKey(false, crypto.Secp384r1)
 	if err != nil {
 		panic(err)
 	}
 
 	for _, badName := range badNames {
-		_, err := makeConstraintsLeafCert(leafSpec{sans: []string{badName}}, priv, nil, priv)
+		_, err := makeConstraintsLeafCert(engine, leafSpec{sans: []string{badName}}, priv, nil, priv)
 
 		if err == nil {
 			t.Errorf("bad name %q unexpectedly accepted in SAN", badName)

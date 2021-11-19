@@ -2,13 +2,17 @@ package x509
 
 import (
 	"bytes"
-	"crypto"
 	"encoding/asn1"
+	"encoding/binary"
 	"encoding/pem"
 	"errors"
+	"fmt"
+	"github.com/meshplus/crypto"
+	"github.com/meshplus/flato-msp-cert/plugin"
 	"github.com/meshplus/flato-msp-cert/primitives/x509/pkix"
 	"io"
 	"math/big"
+	"reflect"
 	"time"
 )
 
@@ -84,13 +88,11 @@ func ParseDERCRL(derBytes []byte) (*CertificateList, error) {
 
 // CreateCRL returns a DER encoded CRL, signed by this Certificate, that
 // contains the given list of revoked certificates.
-func (c *Certificate) CreateCRL(rand io.Reader, priv interface{}, revokedCerts []RevokedCertificate, now, expiry time.Time) (crlBytes []byte, err error) {
-	key, ok := priv.(crypto.Signer)
-	if !ok {
-		return nil, errors.New("x509: certificate private key does not implement crypto.Signer")
+func (c *Certificate) CreateCRL(rand io.Reader, priv crypto.SignKey, revokedCerts []RevokedCertificate, now, expiry time.Time) (crlBytes []byte, err error) {
+	if reflect.DeepEqual(priv, nil) {
+		return nil, fmt.Errorf("private key is nil")
 	}
-
-	hashFunc, signatureAlgorithm, err := signingParamsForPublicKey(key.Public(), 0)
+	hashFunc, signatureAlgorithm, err := signingParamsForPublicKey(priv, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -127,12 +129,15 @@ func (c *Certificate) CreateCRL(rand io.Reader, priv interface{}, revokedCerts [
 		return
 	}
 
-	h := hashFunc.New()
-	_, _ = h.Write(tbsCertListContents)
-	digest := h.Sum(nil)
-
 	var signature []byte
-	signature, err = key.Sign(rand, digest, hashFunc)
+	//pkcs1v15
+	if plugin.ModeIsRSAAlgo(priv.GetKeyInfo()) {
+		var hashTypeUsedInPKCS1v15 [4]byte
+		binary.BigEndian.PutUint32(hashTypeUsedInPKCS1v15[:], uint32(hashFunc))
+		signature, err = priv.Sign(append(tbsCertListContents, hashTypeUsedInPKCS1v15[:]...), hashFunc.New(), rand)
+	} else {
+		signature, err = priv.Sign(tbsCertListContents, hashFunc.New(), rand)
+	}
 	if err != nil {
 		return
 	}

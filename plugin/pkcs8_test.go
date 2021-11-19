@@ -2,16 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package x509
+package plugin
 
 import (
 	"bytes"
-	"crypto"
 	"crypto/elliptic"
-	"crypto/rsa"
 	"encoding/hex"
-	"github.com/meshplus/crypto-standard/asym"
-	"reflect"
+	"github.com/meshplus/crypto"
 	"testing"
 )
 
@@ -21,6 +18,7 @@ var pkcs8RSAPrivateKeyHex = `30820278020100300d06092a864886f70d01010105000482026
 
 // Generated using:
 //   openssl ecparam -genkey -name secp224r1 | openssl pkcs8 -topk8 -nocrypt
+//nolint
 var pkcs8P224PrivateKeyHex = `3078020100301006072a8648ce3d020106052b810400210461305f020101041cca3d72b3e88fed2684576dad9b80a9180363a5424986900e3abcab3fa13c033a0004f8f2a6372872a4e61263ed893afb919576a4cacfecd6c081a2cbc76873cf4ba8530703c6042b3a00e2205087e87d2435d2e339e25702fae1`
 
 // Generated using:
@@ -34,7 +32,7 @@ var pkcs8P384PrivateKeyHex = `3081b6020100301006072a8648ce3d020106052b8104002204
 // Generated using:
 //   openssl ecparam -genkey -name secp521r1 | openssl pkcs8 -topk8 -nocrypt
 //
-// Note that OpenSSL will truncate the private key if it can (i.e. it emits it
+// Note that OpenSSL will truncate the private Key if it can (i.e. it emits it
 // like an integer, even though it's an OCTET STRING field). Thus if you
 // regenerate this you may, randomly, find that it's a byte shorter than
 // expected and the Go test will fail to recreate it exactly.
@@ -44,41 +42,30 @@ func TestPKCS8(t *testing.T) {
 	tests := []struct {
 		name    string
 		keyHex  string
-		keyType reflect.Type
+		keyType int
 		curve   elliptic.Curve
 	}{
 		{
-			name:    "RSA private key",
-			keyHex:  pkcs8RSAPrivateKeyHex,
-			keyType: reflect.TypeOf(&rsa.PrivateKey{}),
-		},
-		{
-			name:    "P-224 private key",
-			keyHex:  pkcs8P224PrivateKeyHex,
-			keyType: reflect.TypeOf(&asym.ECDSAPrivateKey{}),
-			curve:   elliptic.P224(),
-		},
-		{
-			name:    "P-256 private key",
+			name:    "P-256 private Key",
 			keyHex:  pkcs8P256PrivateKeyHex,
-			keyType: reflect.TypeOf(&asym.ECDSAPrivateKey{}),
+			keyType: crypto.Secp256r1,
 			curve:   elliptic.P256(),
 		},
 		{
-			name:    "P-384 private key",
+			name:    "P-384 private Key",
 			keyHex:  pkcs8P384PrivateKeyHex,
-			keyType: reflect.TypeOf(&asym.ECDSAPrivateKey{}),
+			keyType: crypto.Secp384r1,
 			curve:   elliptic.P384(),
 		},
 		{
-			name:    "P-521 private key",
+			name:    "P-521 private Key",
 			keyHex:  pkcs8P521PrivateKeyHex,
-			keyType: reflect.TypeOf(&asym.ECDSAPrivateKey{}),
+			keyType: crypto.Secp521r1,
 			curve:   elliptic.P521(),
 		},
 	}
 
-	for _, test := range tests {
+	for i, test := range tests {
 		derBytes, err := hex.DecodeString(test.keyHex)
 		if err != nil {
 			t.Errorf("%s: failed to decode hex: %s", test.name, err)
@@ -89,15 +76,15 @@ func TestPKCS8(t *testing.T) {
 			t.Errorf("%s: failed to decode PKCS#8: %s", test.name, err)
 			continue
 		}
-		if reflect.TypeOf(privKey) != test.keyType {
-			t.Errorf("%s: decoded PKCS#8 returned unexpected key type: %T", test.name, privKey)
+		if privKey.GetKeyInfo() != test.keyType {
+			t.Errorf("%s: decoded PKCS#8 returned unexpected Key type: %T", test.name, privKey)
 			continue
 		}
-		if ecKey, isEC := privKey.(*asym.ECDSAPrivateKey); isEC && ecKey.Curve != test.curve {
-			t.Errorf("%s: decoded PKCS#8 returned unexpected curve %#v", test.name, ecKey.Curve)
+		if mode := privKey.GetKeyInfo(); i != 0 && mode != ModeFromCurve(test.curve) {
+			t.Errorf("decoded PKCS#8 returned unexpected curve %#v", test.curve.Params().Name)
 			continue
 		}
-		reserialised, err := MarshalPKCS8PrivateKey(privKey.(crypto.Signer))
+		reserialised, err := MarshalPKCS8PrivateKey(privKey.(*PrivateKey))
 		if err != nil {
 			t.Errorf("%s: failed to marshal into PKCS#8: %s", test.name, err)
 			continue

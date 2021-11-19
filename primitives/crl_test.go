@@ -4,25 +4,25 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"github.com/meshplus/crypto"
+	"github.com/meshplus/flato-msp-cert/plugin"
 	gmx509 "github.com/meshplus/flato-msp-cert/primitives/x509"
 	"github.com/stretchr/testify/assert"
 	"io/ioutil"
-	"log"
 	"math/big"
-	"math/rand"
 	"net/http"
-	"strconv"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
 
+func getEngine(t *testing.T) crypto.Engine {
+	engine := plugin.GetCryptoEngine()
+	return engine
+}
+
 func TestCRL(t *testing.T) {
-	//todo: fix
-	t.Skip("ci")
 	const filepath = "./test/allCRL.crl"
-	rand.Seed(time.Now().Unix())
-	serverIP := "localhost:" + strconv.Itoa(rand.Int()%1000+4000)
-	url := "http://" + serverIP + "/crl"
 	crlDer, err := ioutil.ReadFile(filepath)
 	assert.Nil(t, err)
 	assert.NotNil(t, crlDer)
@@ -30,13 +30,10 @@ func TestCRL(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, crl)
 	crlList := sendCertificateList(*crl)
-	http.HandleFunc("/crl", crlList)
-	server := &http.Server{Addr: serverIP, Handler: nil}
-
+	server := httptest.NewUnstartedServer(crlList)
+	url := "http://" + server.Listener.Addr().String()
 	go func() {
-		if err := server.ListenAndServe(); err != http.ErrServerClosed {
-			log.Fatal("server err:", err)
-		}
+		server.Start()
 	}()
 
 	testNewCRL(t, url)
@@ -47,9 +44,8 @@ func TestCRL(t *testing.T) {
 	testCRLCheckRevocationByCRLDistributionPoint(t, url)
 	testFetchCRL(t, url)
 	testCheckRevocation(t, url)
-
-	defer func() { _ = server.Shutdown(nil) }()
 }
+
 func sendCertificateList(crlList pkix.CertificateList) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		crlBytes, _ := asn1.Marshal(crlList)
@@ -69,9 +65,10 @@ func testNewCRL(t *testing.T, url string) {
 }
 
 func testCheckRevocation(t *testing.T, url string) {
+	engine := getEngine(t)
 	cerPem, err := getConfig("./test/cert.cer")
 	assert.Nil(t, err)
-	cert, err := ParseCertificate(cerPem)
+	cert, err := ParseCertificate(engine, cerPem)
 	assert.Nil(t, err)
 
 	// Test CRL fetch from a given address
@@ -93,15 +90,15 @@ func testCheckRevocation(t *testing.T, url string) {
 }
 
 func testCRLCheckRevocation(t *testing.T, url string) {
-
+	engine := getEngine(t)
 	CRL, err := NewCRL(url, *new(chan bool))
 	assert.Nil(t, err)
 
-	certificate, _, err := NewSelfSignedCert("Hyperchain", "www.hyperchain.cn", "ecert", "p256",
+	certificate, _, err := NewSelfSignedCert(engine, "Hyperchain", "www.hyperchain.cn", "ecert", "p256",
 		time.Now(), time.Now().Add(time.Hour))
 	assert.Nil(t, err)
 
-	cert, err := gmx509.ParseCertificate(certificate)
+	cert, err := gmx509.ParseCertificate(engine, certificate)
 	assert.Nil(t, err)
 
 	ok, err := CRL.CheckRevocation(cert)
@@ -124,12 +121,12 @@ func testFetchCRL(t *testing.T, url string) {
 }
 
 func testCheckRevocationWithCRL(t *testing.T, url string) {
-
-	certificate, _, err := NewSelfSignedCert("Hyperchain", "www.hyperchain.cn", "ecert", "p256",
+	engine := getEngine(t)
+	certificate, _, err := NewSelfSignedCert(engine, "Hyperchain", "www.hyperchain.cn", "ecert", "p256",
 		time.Now(), time.Now().Add(time.Hour))
 	assert.Nil(t, err)
 
-	cert, err := gmx509.ParseCertificate(certificate)
+	cert, err := gmx509.ParseCertificate(engine, certificate)
 	assert.Nil(t, err)
 
 	CRL, err := NewCRL(url, *new(chan bool))
@@ -151,12 +148,12 @@ func testCheckRevocationWithCRL(t *testing.T, url string) {
 }
 
 func testCRLCheckRevocationByCRLDistributionPoint(t *testing.T, url string) {
-
-	certificate, _, err := NewSelfSignedCert("Hyperchain", "www.hyperchain.cn", "ecert", "p256",
+	engine := getEngine(t)
+	certificate, _, err := NewSelfSignedCert(engine, "Hyperchain", "www.hyperchain.cn", "ecert", "p256",
 		time.Now(), time.Now().Add(time.Hour))
 	assert.Nil(t, err)
 
-	cert, err := gmx509.ParseCertificate(certificate)
+	cert, err := gmx509.ParseCertificate(engine, certificate)
 	assert.Nil(t, err)
 
 	ok, err := CheckRevocation(cert)
@@ -180,11 +177,12 @@ func testCRLCheckRevocationByCRLDistributionPoint(t *testing.T, url string) {
 }
 
 func testCheckRevocationWithURL(t *testing.T, url string) {
-	certificate, _, err := NewSelfSignedCert("Hyperchain", "www.hyperchain.cn", "ecert", "p256",
+	engine := getEngine(t)
+	certificate, _, err := NewSelfSignedCert(engine, "Hyperchain", "www.hyperchain.cn", "ecert", "p256",
 		time.Now(), time.Now().Add(time.Hour))
 	assert.Nil(t, err)
 
-	cert, err := gmx509.ParseCertificate(certificate)
+	cert, err := gmx509.ParseCertificate(engine, certificate)
 	assert.Nil(t, err)
 
 	ok, err := CheckRevocationWithURL(cert, "")
@@ -198,16 +196,16 @@ func testCheckRevocationWithURL(t *testing.T, url string) {
 }
 
 func testCheckRevocationWithRA(t *testing.T, url string) {
-
-	certificate, _, err := NewSelfSignedCert("Hyperchain", "www.hyperchain.cn", "ecert", "p256",
+	engine := getEngine(t)
+	certificate, _, err := NewSelfSignedCert(engine, "Hyperchain", "www.hyperchain.cn", "ecert", "p256",
 		time.Now(), time.Now().Add(time.Hour))
 	assert.Nil(t, err)
 
-	cert, err := gmx509.ParseCertificate(certificate)
+	cert, err := gmx509.ParseCertificate(engine, certificate)
 	assert.Nil(t, err)
 
 	cert.Subject.OrganizationalUnit = append(cert.Subject.OrganizationalUnit, "Hangzhou Qulian technology co., LTD")
-	assert.Equal(t, "CN=www.hyperchain.cn,OU=Hangzhou Qulian technology co., LTD,O=Hyperchain,C=CN", getDN(cert))
+	assert.Equal(t, "CN=www.hyperchain.cn,OU=Hangzhou Qulian technology co., LTD,OU=ecert,O=Hyperchain,C=CN", getDN(cert))
 
 	ok, err := CheckRevocationWithRA(cert, url)
 	assert.Nil(t, err)

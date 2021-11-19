@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/asn1"
 	"errors"
+	"github.com/meshplus/crypto"
+	"github.com/meshplus/flato-msp-cert/plugin"
 	"github.com/meshplus/flato-msp-cert/primitives/x509/pkix"
 	"math/big"
 	"net"
@@ -22,8 +24,8 @@ type Certificate struct {
 	Signature          []byte
 	SignatureAlgorithm SignatureAlgorithm
 
-	PublicKeyAlgorithm PublicKeyAlgorithm
-	PublicKey          interface{}
+	PublicKeyAlgorithm plugin.PublicKeyAlgorithm
+	PublicKey          crypto.VerifyKey
 
 	Version             int
 	SerialNumber        *big.Int
@@ -124,21 +126,27 @@ func MarshalCertificate(template *Certificate) (cert []byte, err error) {
 		return nil, errors.New("x509: no SerialNumber given")
 	}
 
-	_, signatureAlgorithm, err := signParamsForPublicKey(template.SignatureAlgorithm)
-
+	var signatureAlgorithm, publicKeyAlgorithm pkix.AlgorithmIdentifier
+	_, signatureAlgorithm, err = signParamsForPublicKey(template.SignatureAlgorithm)
 	if err != nil {
 		return nil, err
 	}
-
-	pub := template.PublicKey
-	publicKeyBytes, publicKeyAlgorithm, err := marshalPublicKey(pub)
+	publicKeyAlgorithm, err = plugin.GetPublicKeyAlgorithmFromMode(template.PublicKey.GetKeyInfo())
 	if err != nil {
 		return nil, err
 	}
+	publicKeyBytes := template.PublicKey.Bytes()
+	encodedPublicKey := asn1.BitString{
+		Bytes:     publicKeyBytes,
+		BitLength: 8 * len(publicKeyBytes),
+	}
 
-	asn1Issuer := template.RawIssuer
-
-	asn1Subject, err := SubjectBytesWhenMarshal(template)
+	var asn1Issuer, asn1Subject []byte
+	asn1Issuer, err = issuerBytesWhenMarshal(template)
+	if err != nil {
+		return
+	}
+	asn1Subject, err = subjectBytesWhenMarshal(template)
 	if err != nil {
 		return
 	}
@@ -149,8 +157,6 @@ func MarshalCertificate(template *Certificate) (cert []byte, err error) {
 	if err != nil {
 		return
 	}
-
-	encodedPublicKey := asn1.BitString{BitLength: len(publicKeyBytes) * 8, Bytes: publicKeyBytes}
 
 	c := tbsCertificate{
 		Version:            template.Version,
@@ -169,7 +175,6 @@ func MarshalCertificate(template *Certificate) (cert []byte, err error) {
 	}
 
 	c.Raw = tbsCertContents
-
 	signature := template.Signature
 
 	return asn1.Marshal(certificate{
@@ -180,30 +185,8 @@ func MarshalCertificate(template *Certificate) (cert []byte, err error) {
 	})
 }
 
-// These structures reflect the ASN.1 structure of X.509 certificates.:
-type certificate struct {
-	Raw                asn1.RawContent
-	TBSCertificate     tbsCertificate
-	SignatureAlgorithm pkix.AlgorithmIdentifier
-	SignatureValue     asn1.BitString
-}
-
-type tbsCertificate struct {
-	Raw                asn1.RawContent
-	Version            int `asn1:"optional,explicit,default:0,tag:0"`
-	SerialNumber       *big.Int
-	SignatureAlgorithm pkix.AlgorithmIdentifier
-	Issuer             asn1.RawValue
-	Validity           validity
-	Subject            asn1.RawValue
-	PublicKey          publicKeyInfo
-	UniqueID           asn1.BitString   `asn1:"optional,tag:1"`
-	SubjectUniqueID    asn1.BitString   `asn1:"optional,tag:2"`
-	Extensions         []pkix.Extension `asn1:"optional,explicit,tag:3"`
-}
-
 // ParseCertificate parses a single certificate from the given ASN.1 DER data.
-func ParseCertificate(asn1Data []byte) (*Certificate, error) {
+func ParseCertificate(manager crypto.Engine, asn1Data []byte) (*Certificate, error) {
 	var cert certificate
 	rest, err := asn1.Unmarshal(asn1Data, &cert)
 	if err != nil {
@@ -213,33 +196,31 @@ func ParseCertificate(asn1Data []byte) (*Certificate, error) {
 		return nil, asn1.SyntaxError{Msg: "trailing data"}
 	}
 
-	return parseCertificate(&cert)
+	return parseCertificate(manager, &cert)
 }
 
-func parseCertificate(in *certificate) (*Certificate, error) {
-	out := new(Certificate)
-	out.Raw = in.Raw
-	out.RawTBSCertificate = in.TBSCertificate.Raw
-	out.RawSubjectPublicKeyInfo = in.TBSCertificate.PublicKey.Raw
-	out.RawSubject = in.TBSCertificate.Subject.FullBytes
-	out.RawIssuer = in.TBSCertificate.Issuer.FullBytes
+func parseCertificate(engine crypto.Engine, in *certificate) (out *Certificate, err error) {
+	out = &Certificate{
+		Raw:                     in.Raw,
+		SerialNumber:            in.TBSCertificate.SerialNumber,
+		Version:                 in.TBSCertificate.Version + 1,
+		RawTBSCertificate:       in.TBSCertificate.Raw,
+		RawSubjectPublicKeyInfo: in.TBSCertificate.PublicKey.Raw,
+		RawSubject:              in.TBSCertificate.Subject.FullBytes,
+		RawIssuer:               in.TBSCertificate.Issuer.FullBytes,
+		Signature:               in.SignatureValue.RightAlign(),
+	}
 
-	out.Signature = in.SignatureValue.RightAlign()
-	out.SignatureAlgorithm =
-		getSignatureAlgorithmFromAI(in.TBSCertificate.SignatureAlgorithm)
-
-	//fmt.Println(in.TBSCertificate.SignatureAlgorithm)
-
-	out.PublicKeyAlgorithm =
-		getPublicKeyAlgorithmFromOID(in.TBSCertificate.PublicKey.Algorithm.Algorithm)
-	var err error
-	out.PublicKey, err = parsePublicKey(out.PublicKeyAlgorithm, &in.TBSCertificate.PublicKey)
+	out.SignatureAlgorithm = getSignatureAlgorithmFromAI(in.TBSCertificate.SignatureAlgorithm)
+	out.PublicKeyAlgorithm = plugin.GetPublicKeyAlgorithmFromAlgorithmIdentifier(in.TBSCertificate.PublicKey.Algorithm)
+	rawPub, mode, perr := plugin.ParsePKIXPublicKey(in.TBSCertificate.PublicKey.Raw)
+	if perr != nil {
+		return nil, perr
+	}
+	out.PublicKey, err = engine.GetVerifyKey(rawPub, mode)
 	if err != nil {
 		return nil, err
 	}
-
-	out.Version = in.TBSCertificate.Version + 1
-	out.SerialNumber = in.TBSCertificate.SerialNumber
 
 	var issuer, subject pkix.RDNSequence
 	var rest []byte
@@ -441,4 +422,162 @@ func parseCertificate(in *certificate) (*Certificate, error) {
 	}
 
 	return out, nil
+}
+
+func subjectBytesWhenMarshal(cert *Certificate) ([]byte, error) {
+	if len(cert.RawSubject) > 0 {
+		return cert.RawSubject, nil
+	}
+	var ret pkix.RDNSequence
+	for _, atv := range cert.Subject.Names {
+		ret = append(ret, []pkix.AttributeTypeAndValue{atv})
+	}
+	return asn1.Marshal(ret)
+}
+
+func issuerBytesWhenMarshal(cert *Certificate) ([]byte, error) {
+	if len(cert.RawIssuer) > 0 {
+		return cert.RawIssuer, nil
+	}
+	var ret pkix.RDNSequence
+	for _, atv := range cert.Issuer.Names {
+		ret = append(ret, []pkix.AttributeTypeAndValue{atv})
+	}
+
+	return asn1.Marshal(ret)
+}
+
+// signParamsForPublicKey returns the parameters to use SignatureAlgorithm
+// If requestedSigAlgo is not zero then it overrides the default
+// signature algorithm.
+func signParamsForPublicKey(requestedSigAlgo SignatureAlgorithm) (hashFunc Hash, sigAlgo pkix.AlgorithmIdentifier, err error) {
+	var pubType plugin.PublicKeyAlgorithm
+
+	switch requestedSigAlgo {
+	case
+		MD2WithRSA,
+		MD5WithRSA,
+		SHA1WithRSA,
+		SHA256WithRSA,
+		SHA384WithRSA,
+		SHA512WithRSA:
+
+		pubType = plugin.RSA
+		hashFunc = SHA256
+		sigAlgo.Algorithm = oidSignatureSHA256WithRSA
+		sigAlgo.Parameters = asn1.NullRawValue
+
+	case
+		ECDSAWithSHA1,
+		ECDSAWithSHA256,
+		ECDSAWithSHA384,
+		ECDSAWithSHA512:
+
+		pubType = plugin.ECDSA
+
+		switch requestedSigAlgo {
+		case ECDSAWithSHA256:
+			hashFunc = SHA256
+			sigAlgo.Algorithm = oidSignatureECDSAWithSHA256
+		case ECDSAWithSHA384:
+			hashFunc = SHA384
+			sigAlgo.Algorithm = oidSignatureECDSAWithSHA384
+		case ECDSAWithSHA512:
+			hashFunc = SHA512
+			sigAlgo.Algorithm = oidSignatureECDSAWithSHA512
+		default:
+			err = errors.New("x509: unknown ecdsa sign algo")
+		}
+	case
+		SM3WithSM2,
+		SHA1WithSM2,
+		SHA256WithSM2,
+		SHA512WithSM2,
+		SHA224WithSM2,
+		SHA384WithSM2,
+		RMD160WithSM2:
+
+		pubType = plugin.SM2
+
+		switch requestedSigAlgo {
+		case SM3WithSM2:
+			hashFunc = SM3WithPublicKey
+			sigAlgo.Algorithm = oidSignatureSM3WithSM2
+		case SHA1WithSM2:
+			hashFunc = SHA1
+			sigAlgo.Algorithm = oidSignatureSHA1WithSM2
+		case SHA256WithSM2:
+			hashFunc = SHA256
+			sigAlgo.Algorithm = oidSignatureSHA256WithRSA
+		case SHA512WithSM2:
+			hashFunc = SHA512
+			sigAlgo.Algorithm = oidSignatureSHA512WithSM2
+		case SHA224WithSM2:
+			hashFunc = SHA224
+			sigAlgo.Algorithm = oidSignatureSHA224WithSM2
+		case SHA384WithSM2:
+			hashFunc = SHA384
+			sigAlgo.Algorithm = oidSignatureSHA384WithSM2
+		case RMD160WithSM2:
+			hashFunc = RIPEMD160
+			sigAlgo.Algorithm = oidSignatureRMD160WithSM2
+		default:
+			err = errors.New("x509: unknown SM2 sign algo")
+		}
+	default:
+		err = errors.New("x509: only RSA, ECDSA and SM2 keys supported")
+		return
+	}
+
+	if err != nil {
+		return
+	}
+
+	found := false
+	for _, details := range signatureAlgorithmDetails {
+		if details.algo == requestedSigAlgo {
+			if details.pubKeyAlgo != pubType {
+				err = errors.New("x509: requested SignatureAlgorithm does not match private key type")
+				return
+			}
+			sigAlgo.Algorithm, hashFunc = details.oid, details.hash
+			if hashFunc == 0 {
+				err = errors.New("x509: cannot sign with hash function requested")
+				return
+			}
+			//if requestedSigAlgo.isRSAPSS() {
+			//	sigAlgo.Parameters = rsaPSSParameters(std.Hash(hashFunc))
+			//}
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		err = errors.New("x509: unknown SignatureAlgorithm")
+	}
+
+	return
+}
+
+// These structures reflect the ASN.1 structure of X.509 certificates.:
+type certificate struct {
+	Raw                asn1.RawContent
+	TBSCertificate     tbsCertificate
+	SignatureAlgorithm pkix.AlgorithmIdentifier
+	SignatureValue     asn1.BitString
+}
+
+type tbsCertificate struct {
+	Raw                asn1.RawContent
+	Version            int `asn1:"optional,explicit,default:0,tag:0"`
+	SerialNumber       *big.Int
+	SignatureAlgorithm pkix.AlgorithmIdentifier
+	Issuer             asn1.RawValue
+	Validity           validity
+	Subject            asn1.RawValue
+	PublicKey          publicKeyInfo
+	UniqueID           asn1.BitString   `asn1:"optional,tag:1"`
+	SubjectUniqueID    asn1.BitString   `asn1:"optional,tag:2"`
+	Extensions         []pkix.Extension `asn1:"optional,explicit,tag:3"`
 }

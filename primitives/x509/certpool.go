@@ -1,7 +1,10 @@
 package x509
 
 import (
+	"encoding/base64"
 	"encoding/pem"
+	"fmt"
+	"github.com/meshplus/crypto"
 )
 
 // CertPool is a set of certificates.
@@ -108,13 +111,28 @@ func (s *CertPool) AddCert(cert *Certificate) {
 	s.byName[name] = append(s.byName[name], n)
 }
 
+//PrintDebugInfo Print debug info about CertPool
+func (s *CertPool) PrintDebugInfo() string {
+	r := ""
+	for i := range s.certs {
+		cert, err := MarshalCertificate(s.certs[i])
+		if err != nil {
+			r += fmt.Sprintf("cert %v : parse error : %v\n", i, err.Error())
+		} else {
+			r += fmt.Sprintf("cert %v : %v\n", i, base64.StdEncoding.EncodeToString(cert))
+		}
+
+	}
+	return r
+}
+
 // AppendCertsFromPEM attempts to parse a series of PEM encoded certificates.
 // It appends any certificates found to s and reports whether any certificates
 // were successfully parsed.
 //
 // On many Linux systems, /etc/ssl/cert.pem will contain the system wide set
 // of root CAs in a format suitable for this function.
-func (s *CertPool) AppendCertsFromPEM(pemCerts []byte) (ok bool) {
+func (s *CertPool) AppendCertsFromPEM(manager crypto.Engine, pemCerts []byte) (ok bool) {
 	for len(pemCerts) > 0 {
 		var block *pem.Block
 		block, pemCerts = pem.Decode(pemCerts)
@@ -125,7 +143,7 @@ func (s *CertPool) AppendCertsFromPEM(pemCerts []byte) (ok bool) {
 			continue
 		}
 
-		cert, err := ParseCertificate(block.Bytes)
+		cert, err := ParseCertificate(manager, block.Bytes)
 		if err != nil {
 			continue
 		}

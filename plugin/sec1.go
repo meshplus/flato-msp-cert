@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package x509
+package plugin
 
 import (
 	"crypto/elliptic"
@@ -33,7 +33,7 @@ func ParseECPrivateKey(der []byte) (*asym.ECDSAPrivateKey, error) {
 	return parseECPrivateKey(nil, der)
 }
 
-// MarshalECPrivateKey marshals an EC private key into ASN.1, DER format.
+// MarshalECPrivateKey marshals an EC private Key into ASN.1, DER format.
 func MarshalECPrivateKey(key *asym.ECDSAPrivateKey) ([]byte, error) {
 	oid, ok := oidFromNamedCurve(key.Curve)
 	if !ok {
@@ -43,7 +43,7 @@ func MarshalECPrivateKey(key *asym.ECDSAPrivateKey) ([]byte, error) {
 	return marshalECPrivateKeyWithOID(key, oid)
 }
 
-// marshalECPrivateKey marshals an EC private key into ASN.1, DER format and
+// marshalECPrivateKey marshals an EC private Key into ASN.1, DER format and
 // sets the curve ID to the given OID, or omits it if OID is nil.
 func marshalECPrivateKeyWithOID(key *asym.ECDSAPrivateKey, oid asn1.ObjectIdentifier) ([]byte, error) {
 	privateKeyBytes := key.D.Bytes()
@@ -61,14 +61,14 @@ func marshalECPrivateKeyWithOID(key *asym.ECDSAPrivateKey, oid asn1.ObjectIdenti
 // parseECPrivateKey parses an ASN.1 Elliptic Curve Private Key Structure.
 // The OID for the named curve may be provided from another source (such as
 // the PKCS8 container) - if it is provided then use this instead of the OID
-// that may exist in the EC private key structure.
+// that may exist in the EC private Key structure.
 func parseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key *asym.ECDSAPrivateKey, err error) {
 	var privKey ecPrivateKey
 	if _, err := asn1.Unmarshal(der, &privKey); err != nil {
-		return nil, errors.New("x509: failed to parse EC private key: " + err.Error())
+		return nil, errors.New("x509: failed to parse EC private Key: " + err.Error())
 	}
 	if privKey.Version != ecPrivKeyVersion {
-		return nil, fmt.Errorf("x509: unknown EC private key version %d", privKey.Version)
+		return nil, fmt.Errorf("x509: unknown EC private Key version %d", privKey.Version)
 	}
 
 	var curve elliptic.Curve
@@ -84,7 +84,7 @@ func parseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key *a
 	k := new(big.Int).SetBytes(privKey.PrivateKey)
 	curveOrder := curve.Params().N
 	if k.Cmp(curveOrder) >= 0 {
-		return nil, errors.New("x509: invalid elliptic curve private key value")
+		return nil, errors.New("x509: invalid elliptic curve private Key value")
 	}
 	priv := new(asym.ECDSAPrivateKey)
 	priv.Curve = curve
@@ -96,7 +96,7 @@ func parseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key *a
 	// according to [SEC1], but this code will ignore it.
 	for len(privKey.PrivateKey) > len(privateKey) {
 		if privKey.PrivateKey[0] != 0 {
-			return nil, errors.New("x509: invalid private key length")
+			return nil, errors.New("x509: invalid private Key length")
 		}
 		privKey.PrivateKey = privKey.PrivateKey[1:]
 	}

@@ -1,13 +1,13 @@
 package x509
 
 import (
-	"crypto"
 	"crypto/rand"
 	"encoding/asn1"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"github.com/meshplus/crypto-standard/asym"
+	"github.com/meshplus/crypto"
+	"github.com/meshplus/flato-msp-cert/plugin"
 	"github.com/meshplus/flato-msp-cert/primitives/x509/pkix"
 	"github.com/stretchr/testify/assert"
 	"math/big"
@@ -19,31 +19,20 @@ import (
 	"time"
 )
 
+func getEngine(t *testing.T) crypto.Engine {
+	return plugin.GetSoftwareEngine("")
+}
+
 func TestCertificateInvalidError_Error(t *testing.T) {
 	e := CertificateInvalidError{
 		new(Certificate),
 		0,
 		"0",
 	}
-	_ = e.Error()
-	e.Reason = 1
-	_ = e.Error()
-	e.Reason = 2
-	_ = e.Error()
-	e.Reason = 3
-	_ = e.Error()
-	e.Reason = 4
-	_ = e.Error()
-	e.Reason = 5
-	_ = e.Error()
-	e.Reason = 6
-	_ = e.Error()
-	e.Reason = 7
-	_ = e.Error()
-	e.Reason = 8
-	_ = e.Error()
-	e.Reason = 9
-	_ = e.Error()
+	for i := 0; i < 10; i++ {
+		e.Reason = InvalidReason(i)
+		_ = e.Error()
+	}
 	e.Reason = 10
 	errmsg := e.Error()
 	assert.Equal(t, "x509: unknown error", errmsg)
@@ -221,14 +210,14 @@ func TestCertificate_Verify(t *testing.T) {
 	// Verifying with a custom list of root certificates.
 
 	var (
-		privKey crypto.Signer
-		pubKey  interface{}
+		privKey crypto.SignKey
+		pubKey  crypto.VerifyKey
 	)
-
-	privKeyECDSA, err := asym.GenerateKey(asym.AlgoP256R1)
+	engine := getEngine(t)
+	_, privKeyECDSA, err := engine.CreateSignKey(false, crypto.Secp256r1)
 	assert.Nil(t, err)
 	privKey = privKeyECDSA
-	pubKey = privKeyECDSA.Public()
+	pubKey = privKeyECDSA
 
 	template := Certificate{
 		SerialNumber: big.NewInt(1),
@@ -270,7 +259,7 @@ func TestCertificate_Verify(t *testing.T) {
 	ca, err := CreateCertificate(rand.Reader, &template, &template, pubKey, privKey)
 	assert.Nil(t, err)
 
-	root, err := ParseCertificate(ca)
+	root, err := ParseCertificate(engine, ca)
 	if err != nil {
 		panic("failed to parse certificate: " + err.Error())
 	}
@@ -802,12 +791,12 @@ func expectUnhandledCriticalExtension(t *testing.T, i int, err error) (ok bool) 
 	return true
 }
 
-func certificateFromPEM(pemBytes string) (*Certificate, error) {
+func certificateFromPEM(pemBytes string, t *testing.T) (*Certificate, error) {
 	block, _ := pem.Decode([]byte(pemBytes))
 	if block == nil {
 		return nil, errors.New("failed to decode PEM")
 	}
-	return ParseCertificate(block.Bytes)
+	return ParseCertificate(getEngine(t), block.Bytes)
 }
 
 func testVerify(t *testing.T, useSystemRoots bool) {
@@ -833,7 +822,7 @@ func testVerify(t *testing.T, useSystemRoots bool) {
 		if !useSystemRoots {
 			opts.Roots = NewCertPool()
 			for j, root := range test.roots {
-				ok := opts.Roots.AppendCertsFromPEM([]byte(root))
+				ok := opts.Roots.AppendCertsFromPEM(getEngine(t), []byte(root))
 				if !ok {
 					t.Errorf("#%d: failed to parse root #%d", i, j)
 					return
@@ -842,14 +831,14 @@ func testVerify(t *testing.T, useSystemRoots bool) {
 		}
 
 		for j, intermediate := range test.intermediates {
-			ok := opts.Intermediates.AppendCertsFromPEM([]byte(intermediate))
+			ok := opts.Intermediates.AppendCertsFromPEM(getEngine(t), []byte(intermediate))
 			if !ok {
 				t.Errorf("#%d: failed to parse intermediate #%d", i, j)
 				return
 			}
 		}
 
-		leaf, err := certificateFromPEM(test.leaf)
+		leaf, err := certificateFromPEM(test.leaf, t)
 		if err != nil {
 			t.Errorf("#%d: failed to parse leaf: %v", i, err)
 			return
@@ -907,14 +896,6 @@ func testVerify(t *testing.T, useSystemRoots bool) {
 			t.Errorf("#%d: No expected chain matched %s", i, chainToDebugString(chain))
 		}
 	}
-}
-
-func TestGoVerifyFalse(t *testing.T) {
-	testVerify(t, false)
-}
-
-func TestGoVerifyTrue(t *testing.T) {
-	testVerify(t, true)
 }
 
 func chainToDebugString(chain []*Certificate) string {
@@ -2107,27 +2088,6 @@ var unknownAuthorityErrorTests = []struct {
 	{selfSignedNoCommonNameNoOrgName, "x509: certificate signed by unknown authority (possibly because of \"empty\" while trying to verify candidate authority certificate \"serial:0\")"},
 }
 
-func TestUnknownAuthorityError(t *testing.T) {
-	for i, tt := range unknownAuthorityErrorTests {
-		der, _ := pem.Decode([]byte(tt.cert))
-		if der == nil {
-			t.Errorf("#%d: Unable to decode PEM block", i)
-		}
-		c, err := ParseCertificate(der.Bytes)
-		if err != nil {
-			t.Errorf("#%d: Unable to parse certificate -> %v", i, err)
-		}
-		uae := &UnknownAuthorityError{
-			Cert:     c,
-			hintErr:  fmt.Errorf("empty"),
-			hintCert: c,
-		}
-		actual := uae.Error()
-		if actual != tt.expected {
-			t.Errorf("#%d: UnknownAuthorityError.Error() response invalid actual: %s expected: %s", i, actual, tt.expected)
-		}
-	}
-}
 
 const selfSignedWithCommonName = `-----BEGIN CERTIFICATE-----
 MIIDCjCCAfKgAwIBAgIBADANBgkqhkiG9w0BAQsFADAaMQswCQYDVQQKEwJjYTEL
@@ -2275,8 +2235,8 @@ func TestValidHostname(t *testing.T) {
 	}
 }
 
-func generateCert(cn string, isCA bool, issuer *Certificate, issuerKey crypto.Signer) (*Certificate, crypto.Signer, error) {
-	priv, err := asym.GenerateKey(asym.AlgoP256R1)
+func generateCert(engine crypto.Engine, cn string, isCA bool, issuer *Certificate, issuerKey crypto.SignKey) (*Certificate, crypto.SignKey, error) {
+	_, priv, err := engine.CreateSignKey(false, crypto.Secp256r1)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2300,11 +2260,11 @@ func generateCert(cn string, isCA bool, issuer *Certificate, issuerKey crypto.Si
 		issuerKey = priv
 	}
 
-	derBytes, err := CreateCertificate(rand.Reader, template, issuer, priv.Public(), issuerKey)
+	derBytes, err := CreateCertificate(rand.Reader, template, issuer, priv, issuerKey)
 	if err != nil {
 		return nil, nil, err
 	}
-	cert, err := ParseCertificate(derBytes)
+	cert, err := ParseCertificate(engine, derBytes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2320,22 +2280,22 @@ func TestPathologicalChain(t *testing.T) {
 	// Build a chain where all intermediates share the same subject, to hit the
 	// path building worst behavior.
 	roots, intermediates := NewCertPool(), NewCertPool()
-
-	parent, parentKey, err := generateCert("Root CA", true, nil, nil)
+	engine := getEngine(t)
+	parent, parentKey, err := generateCert(engine, "Root CA", true, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	roots.AddCert(parent)
 
 	for i := 1; i < 101; i++ {
-		parent, parentKey, err = generateCert("Intermediate CA", true, parent, parentKey)
+		parent, parentKey, err = generateCert(engine, "Intermediate CA", true, parent, parentKey)
 		if err != nil {
 			t.Fatal(err)
 		}
 		intermediates.AddCert(parent)
 	}
 
-	leaf, _, err := generateCert("Leaf", false, parent, parentKey)
+	leaf, _, err := generateCert(engine, "Leaf", false, parent, parentKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2358,8 +2318,8 @@ func TestLongChain(t *testing.T) {
 	}
 
 	roots, intermediates := NewCertPool(), NewCertPool()
-
-	parent, parentKey, err := generateCert("Root CA", true, nil, nil)
+	engine := getEngine(t)
+	parent, parentKey, err := generateCert(engine, "Root CA", true, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2367,14 +2327,14 @@ func TestLongChain(t *testing.T) {
 
 	for i := 1; i < 15; i++ {
 		name := fmt.Sprintf("Intermediate CA #%d", i)
-		parent, parentKey, err = generateCert(name, true, parent, parentKey)
+		parent, parentKey, err = generateCert(engine, name, true, parent, parentKey)
 		if err != nil {
 			t.Fatal(err)
 		}
 		intermediates.AddCert(parent)
 	}
 
-	leaf, _, err := generateCert("Leaf", false, parent, parentKey)
+	leaf, _, err := generateCert(engine, "Leaf", false, parent, parentKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2391,17 +2351,18 @@ func TestLongChain(t *testing.T) {
 
 func TestIsValid(t *testing.T) {
 	var (
-		privKeyECDSA       *asym.ECDSAPrivateKey
+		privKeyECDSA       crypto.SignKey
 		signatureAlgorithm SignatureAlgorithm
-		privKey            crypto.Signer
-		pubKey             interface{}
+		privKey            crypto.SignKey
+		pubKey             crypto.VerifyKey
 	)
 
-	privKeyECDSA, err := asym.GenerateKey(asym.AlgoP256R1)
+	engine := getEngine(t)
+	_, privKeyECDSA, err := engine.CreateSignKey(false, crypto.Secp256r1)
 	assert.Nil(t, err)
 	signatureAlgorithm = ECDSAWithSHA256
 	privKey = privKeyECDSA
-	pubKey = privKeyECDSA.Public()
+	pubKey = privKeyECDSA
 
 	Subject := pkix.Name{
 		CommonName:   "/////",
@@ -2436,7 +2397,7 @@ func TestIsValid(t *testing.T) {
 		cert = block.Bytes
 	}
 
-	c, err := ParseCertificate(cert)
+	c, err := ParseCertificate(engine, cert)
 	if err != nil {
 		panic("failed to parse certificate: " + err.Error())
 	}

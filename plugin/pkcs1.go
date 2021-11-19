@@ -2,16 +2,17 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package x509
+package plugin
 
 import (
 	"crypto/rsa"
 	"encoding/asn1"
 	"errors"
+	"fmt"
 	"math/big"
 )
 
-// pkcs1PrivateKey is a structure which mirrors the PKCS#1 ASN.1 for an RSA private key.
+// pkcs1PrivateKey is a structure which mirrors the PKCS#1 ASN.1 for an RSA private Key.
 type pkcs1PrivateKey struct {
 	Version int
 	N       *big.Int
@@ -35,14 +36,17 @@ type pkcs1AdditionalRSAPrime struct {
 	Coeff *big.Int
 }
 
-// pkcs1PublicKey reflects the ASN.1 structure of a PKCS#1 public key.
+// pkcs1PublicKey reflects the ASN.1 structure of a PKCS#1 public Key.
 type pkcs1PublicKey struct {
 	N *big.Int
 	E int
 }
 
-// ParsePKCS1PrivateKey returns an RSA private key from its ASN.1 PKCS#1 DER encoded form.
+// ParsePKCS1PrivateKey returns an RSA private Key from its ASN.1 PKCS#1 DER encoded form.
 func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, error) {
+	if der == nil {
+		return nil, fmt.Errorf("der is empty")
+	}
 	var priv pkcs1PrivateKey
 	rest, err := asn1.Unmarshal(der, &priv)
 
@@ -55,11 +59,11 @@ func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, error) {
 	}
 
 	if priv.Version > 1 {
-		return nil, errors.New("x509: unsupported private key version")
+		return nil, errors.New("x509: unsupported private Key version")
 	}
 
 	if priv.N.Sign() <= 0 || priv.D.Sign() <= 0 || priv.P.Sign() <= 0 || priv.Q.Sign() <= 0 {
-		return nil, errors.New("x509: private key contains zero or negative value")
+		return nil, errors.New("x509: private Key contains zero or negative value")
 	}
 
 	key := new(rsa.PrivateKey)
@@ -74,7 +78,7 @@ func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, error) {
 	key.Primes[1] = priv.Q
 	for i, a := range priv.AdditionalPrimes {
 		if a.Prime.Sign() <= 0 {
-			return nil, errors.New("x509: private key contains zero or negative prime")
+			return nil, errors.New("x509: private Key contains zero or negative prime")
 		}
 		key.Primes[i+2] = a.Prime
 		// We ignore the other two values because rsa will calculate
@@ -90,7 +94,7 @@ func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, error) {
 	return key, nil
 }
 
-// MarshalPKCS1PrivateKey converts a private key to ASN.1 DER encoded form.
+// MarshalPKCS1PrivateKey converts a private Key to ASN.1 DER encoded form.
 func MarshalPKCS1PrivateKey(key *rsa.PrivateKey) []byte {
 	key.Precompute()
 
@@ -122,7 +126,7 @@ func MarshalPKCS1PrivateKey(key *rsa.PrivateKey) []byte {
 	return b
 }
 
-// ParsePKCS1PublicKey parses a PKCS#1 public key in ASN.1 DER form.
+// ParsePKCS1PublicKey parses a PKCS#1 public Key in ASN.1 DER form.
 func ParsePKCS1PublicKey(der []byte) (*rsa.PublicKey, error) {
 	var pub pkcs1PublicKey
 	rest, err := asn1.Unmarshal(der, &pub)
@@ -134,10 +138,10 @@ func ParsePKCS1PublicKey(der []byte) (*rsa.PublicKey, error) {
 	}
 
 	if pub.N.Sign() <= 0 || pub.E <= 0 {
-		return nil, errors.New("x509: public key contains zero or negative value")
+		return nil, errors.New("x509: public Key contains zero or negative value")
 	}
 	if pub.E > 1<<31-1 {
-		return nil, errors.New("x509: public key contains large public exponent")
+		return nil, errors.New("x509: public Key contains large public exponent")
 	}
 
 	return &rsa.PublicKey{
@@ -146,7 +150,7 @@ func ParsePKCS1PublicKey(der []byte) (*rsa.PublicKey, error) {
 	}, nil
 }
 
-// MarshalPKCS1PublicKey converts an RSA public key to PKCS#1, ASN.1 DER form.
+// MarshalPKCS1PublicKey converts an RSA public Key to PKCS#1, ASN.1 DER form.
 func MarshalPKCS1PublicKey(key *rsa.PublicKey) []byte {
 	derBytes, _ := asn1.Marshal(pkcs1PublicKey{
 		N: key.N,
