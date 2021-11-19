@@ -1,11 +1,18 @@
 package primitives
 
 import (
+	"github.com/meshplus/crypto"
+	"github.com/meshplus/flato-msp-cert/plugin"
 	"github.com/meshplus/flato-msp-cert/primitives/x509"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
 )
+
+func getEngine(t *testing.T) crypto.Engine {
+	return plugin.GetSoftwareEngine("")
+}
+
 
 func TestIdentityName_String(t *testing.T) {
 	idName := IdentityName{"Hyperchain", "www.hyperchan.cn", "ecert", "fd26a860237b461d1baec332"}

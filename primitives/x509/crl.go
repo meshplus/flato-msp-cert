@@ -16,9 +16,6 @@ import (
 	"time"
 )
 
-//ra  http://ucrl.cfca.com.cn/OCA1/SM2/allCRL.crl
-//crl http://114.55.107.52:8080/raWeb/CSHttpServlet
-
 // CertificateList represents the ASN.1 structure of the same name. See RFC
 // 5280, section 5.1. Use Certificate.CheckCRLSignature to verify the
 // signature.
