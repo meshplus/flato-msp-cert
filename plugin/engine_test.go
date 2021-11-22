@@ -11,7 +11,7 @@ import (
 )
 
 func TestKeyStore(t *testing.T) {
-	engine:= GetCryptoEngine()
+	engine := GetCryptoEngine()
 	t.Run("random", func(t *testing.T) {
 		buf := make([]byte, 128)
 		r, err := engine.Rander()
@@ -24,7 +24,6 @@ func TestKeyStore(t *testing.T) {
 		}
 		assert.True(t, sun != 0)
 	})
-
 
 	t.Run("Key store", func(t *testing.T) {
 		//old dir tmp

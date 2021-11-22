@@ -13,7 +13,6 @@ func getEngine(t *testing.T) crypto.Engine {
 	return plugin.GetSoftwareEngine("")
 }
 
-
 func TestIdentityName_String(t *testing.T) {
 	idName := IdentityName{"Hyperchain", "www.hyperchan.cn", "ecert", "fd26a860237b461d1baec332"}
 	assert.Equal(t, "GN=ecert,O=Hyperchain,CN=www.hyperchan.cn,SERIALNUMBER=fd26a860237b461d1baec332", idName.String())

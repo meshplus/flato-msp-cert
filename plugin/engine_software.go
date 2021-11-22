@@ -305,7 +305,7 @@ func createPrivateKey(keyStorePath *string, write bool, mode int) ([]byte, crypt
 
 	//persist
 	if write {
-		if *keyStorePath == "" ||  *keyStorePath == "no store"{
+		if *keyStorePath == "" || *keyStorePath == "no store" {
 			return nil, nil, fmt.Errorf("this engine has no Key store")
 		}
 		name := getRandomStr(10) + ".priv"
@@ -361,7 +361,6 @@ func importPrivateKey(key []byte, mode int) (index []byte, err error) {
 	}
 	return MarshalPKCS8PrivateKey(tmp)
 }
-
 
 //parsePrivateKey parse private Key in pkcs8, sec1, pkcs1, sm2
 func parsePrivateKey(der []byte) (crypto.PrivateKey, error) {

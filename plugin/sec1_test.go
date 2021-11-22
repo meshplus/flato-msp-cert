@@ -9,8 +9,8 @@ import (
 	"crypto/elliptic"
 	"encoding/asn1"
 	"encoding/hex"
-	"github.com/stretchr/testify/assert"
 	gm "github.com/meshplus/crypto-gm"
+	"github.com/stretchr/testify/assert"
 	"testing"
 )
 

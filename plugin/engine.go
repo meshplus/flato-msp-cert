@@ -10,7 +10,6 @@ import (
 	"github.com/meshplus/crypto"
 )
 
-
 //Function function
 type Function uint32
 
@@ -42,11 +41,6 @@ func (f Function) String() string {
 		return fmt.Sprintf("[0x%X]", int(f))
 	}
 }
-
-const (
-	configDefault  = "default"
-	configPriority = "priority"
-)
 
 //Function function
 const (
@@ -100,7 +94,6 @@ func (e *unLoadError) Error() string {
 
 //EncryptEngineMux encryption mux
 type EncryptEngineMux struct {
-	note   *[FunctionMax]bool
 	detail map[uint64]string
 
 	s          *softwareEngine
