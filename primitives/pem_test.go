@@ -1,19 +1,18 @@
 package primitives
 
 import (
-	gm "github.com/meshplus/crypto-gm"
+	"github.com/meshplus/crypto"
 	"github.com/stretchr/testify/assert"
 	"math/rand"
 	"testing"
 )
 
 func TestPEM2DER(t *testing.T) {
-	sk, err := gm.GenerateSM2Key()
+	engine := getEngine(t)
+	skDER, sk, err := engine.CreateSignKey(false, crypto.Sm2p256v1)
 	assert.Nil(t, err)
-	pk := sk.PublicKey
+	pk := sk
 	assert.NotNil(t, pk)
-	skDER, err := MarshalPrivateKey(sk)
-	assert.Nil(t, err)
 
 	key := new([32]byte)
 	_, _ = rand.Read(key[:])

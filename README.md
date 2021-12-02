@@ -61,4 +61,4 @@ Small note: If editing the Readme, please conform to the [standard-readme](https
 
 ## License
 
-LGPL © flato
+This project is currently under Apache 2.0 license. See the LICENSE file for details.

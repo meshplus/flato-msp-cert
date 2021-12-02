@@ -10,10 +10,11 @@
 package pkcs12
 
 import (
-	"crypto"
 	"crypto/sha1"
 	"encoding/asn1"
 	"errors"
+	"github.com/meshplus/crypto"
+	"github.com/meshplus/flato-msp-cert/plugin"
 	gmx509 "github.com/meshplus/flato-msp-cert/primitives/x509"
 	"github.com/meshplus/flato-msp-cert/primitives/x509/pkix"
 	"io"
@@ -137,7 +138,8 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 			if error != nil {
 				return nil, nil, nil, error
 			}
-			certs, error := gmx509.ParseCertificates(certsData)
+			engine := plugin.GetSoftwareEngine("")
+			certs, error := gmx509.ParseCertificates(engine, certsData)
 			if error != nil {
 				return nil, nil, nil, error
 			}
@@ -269,7 +271,7 @@ func getSafeContents(p12Data, password []byte) (bags []safeBag, updatedPassword 
 // certificate.
 func Encode(
 	rand io.Reader,
-	privateKey crypto.Signer,
+	privateKey crypto.SignKey,
 	certificate *gmx509.Certificate,
 	caCerts []*gmx509.Certificate,
 	password string) (pfxData []byte, err error) {
@@ -312,7 +314,7 @@ func Encode(
 	}
 
 	//2 构造Pkcs8ShroudedKeyBag
-	kvb, err := encodePkcs8ShroudedKeyBag(rand, privateKey, encodedPassword)
+	kvb, err := encodePkcs8ShroudedKeyBag(rand, privateKey.(*plugin.PrivateKey).PrivKey, encodedPassword)
 	if err != nil {
 		return nil, err
 	}

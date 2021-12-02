@@ -14,11 +14,12 @@ type PEMType int
 
 //pem type enum
 const (
-	PEMECCPrivateKey  PEMType = 0x0000
-	PEMRSAPrivateKey  PEMType = 0x0001
-	PEMPublicKey      PEMType = 0x0010
-	PEMCertificate    PEMType = 0x0100
-	PEMInvalidPEMType PEMType = 0x10000
+	PEMECCPrivateKey PEMType = iota
+	PEMRSAPrivateKey
+	PEMAnyPrivateKey
+	PEMPublicKey
+	PEMCertificate
+	PEMInvalidPEMType
 )
 
 //pem file header
@@ -27,6 +28,7 @@ const (
 	pemTypeCertificate   = "CERTIFICATE"
 	pemTypePublicKey     = "PUBLIC KEY"
 	pemTypeRSAPrivateKey = "RSA PRIVATE KEY"
+	pemTypeAnyPrivateKey = "PRIVATE KEY"
 )
 
 // PEM2DER pem to der
@@ -34,9 +36,15 @@ func PEM2DER(raw []byte) ([]byte, PEMType) {
 	if len(raw) == 0 {
 		return nil, PEMInvalidPEMType
 	}
+
+	//see function parseIndex(...) in plugin package
+	if bytes.HasPrefix(raw, []byte("plugin")) {
+		return raw, PEMInvalidPEMType
+	}
+
 	block, _ := pem.Decode(raw)
 	if block == nil {
-		return nil, PEMInvalidPEMType
+		return raw, PEMInvalidPEMType
 	}
 	return block.Bytes, getPemType(block.Type)
 }
@@ -54,6 +62,8 @@ func DER2PEM(in []byte, t PEMType) ([]byte, error) {
 		pb.Type = pemTypeECPrivateKey
 	case PEMRSAPrivateKey:
 		pb.Type = pemTypeRSAPrivateKey
+	case PEMAnyPrivateKey:
+		pb.Type = pemTypeAnyPrivateKey
 	case PEMCertificate:
 		pb.Type = pemTypeCertificate
 	}
@@ -79,6 +89,8 @@ func DER2PEMWithEncryption(in []byte, t PEMType, pwd [32]byte) ([]byte, error) {
 		pemType = pemTypeECPrivateKey
 	case PEMRSAPrivateKey:
 		pemType = pemTypeRSAPrivateKey
+	case PEMAnyPrivateKey:
+		pemType = pemTypeAnyPrivateKey
 	case PEMCertificate:
 		pemType = pemTypeCertificate
 	}
@@ -129,10 +141,12 @@ func getPemType(blockType string) PEMType {
 		r = PEMCertificate
 	case strings.Contains(blockType, "RSA"):
 		r = PEMRSAPrivateKey
-	case strings.Contains(blockType, "PUB"):
-		r = PEMPublicKey
 	case strings.Contains(blockType, "EC"):
 		r = PEMECCPrivateKey
+	case strings.Contains(blockType, "PRIVATE"):
+		r = PEMAnyPrivateKey
+	case strings.Contains(blockType, "PUB"):
+		r = PEMPublicKey
 	}
 	return r
 }

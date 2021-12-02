@@ -38,10 +38,11 @@ func TestCertType_GetValue(t *testing.T) {
 }
 
 func TestAssertCertType(t *testing.T) {
-	certificate, _, err := NewSelfSignedCert("Hyperchain", "www.hyperchain.cn", "ecert", "p256",
+	engine := getEngine(t)
+	certificate, _, err := NewSelfSignedCert(engine, "Hyperchain", "www.hyperchain.cn", "ecert", "p256",
 		time.Now(), time.Now().Add(time.Hour))
 	assert.Nil(t, err)
-	cert, err := gmx509.ParseCertificate(certificate)
+	cert, err := gmx509.ParseCertificate(engine, certificate)
 	assert.Nil(t, err)
 	cert.Extensions = []pkix.Extension{{ID: []int{1, 2, 86, 1}, Critical: true, Value: []byte("ecert")}}
 	assert.True(t, AssertCertType(ECert, cert))

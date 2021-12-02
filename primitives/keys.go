@@ -1,68 +1,41 @@
 package primitives
 
 import (
-	"crypto/ecdsa"
-	"crypto/rsa"
-	"errors"
-	"github.com/meshplus/crypto-gm"
-	"github.com/meshplus/crypto-standard/asym"
-	"github.com/meshplus/flato-msp-cert/primitives/x509"
+	"fmt"
+	"github.com/meshplus/crypto"
+	"github.com/meshplus/flato-msp-cert/plugin"
 )
 
-//MarshalPrivateKey converts a private key to DER
-func MarshalPrivateKey(privateKey interface{}) ([]byte, error) {
-	switch x := privateKey.(type) {
-	case *ecdsa.PrivateKey:
-		return nil, errors.New("please use asym.ECDSAPrivateKey")
-	case *asym.ECDSAPrivateKey:
-		return x509.MarshalECPrivateKey(x)
-	case *gm.SM2PrivateKey:
-		return marshalSMPrivateKey(x)
-	case *rsa.PrivateKey:
-		return x509.MarshalPKCS1PrivateKey(x), nil
-	default:
-		return nil, errors.New("invalid key")
-	}
-}
+// UnmarshalPrivateKey unmarshals a pkcs8 der to private key
+func UnmarshalPrivateKey(engine crypto.Engine, index []byte) (key crypto.SignKey, err error) {
+	//todo transfer to pkcs8
+	//sm2 sec1
+	//if sm2key, err := parseSMPrivateKey(index); err == nil {
+	//	plugin.MarshalPKCS8PrivateKey(&plugin.PrivateKey{})
+	//}
+	//ecc sec1
 
-// UnmarshalPrivateKey unmarshals a der to private key
-func UnmarshalPrivateKey(der []byte) (key interface{}, err error) {
-	if key, err = x509.ParsePKCS1PrivateKey(der); err == nil { //parsing the pkcs1 private key
-		return
-	}
+	//rsa pkcs1
 
-	if key, err = x509.ParsePKCS8PrivateKey(der); err == nil { //parsing the pkcs8 private key
-		switch k := key.(type) {
-		case *rsa.PrivateKey:
-			return
-		case *asym.ECDSAPrivateKey:
-			if k.Curve == gm.GetSm2Curve() {
-				return new(gm.SM2PrivateKey).FromBytes(k.D.Bytes()).CalculatePublicKey(), nil
-			}
-			return
-		case *gm.SM2PrivateKey:
-			return
-		default:
-			return nil, errors.New("found unknown private key type in PKCS#8 wrapping")
-		}
+	//parse pkcs8
+	k, err := engine.GetSignKey(index, crypto.None)
+	if err == nil {
+		return k, nil
 	}
-
-	if key, err = parseSMPrivateKey(der); err == nil { //parsing the guomi private key
-		return
-	}
-	if key, err = x509.ParseECPrivateKey(der); err == nil { //parsing the ecdsa private key
-		return
-	}
-	return nil, errors.New("failed to parse private key")
+	return
 }
 
 // MarshalPublicKey marshal a public key to the pem forma
-func MarshalPublicKey(publicKey interface{}) ([]byte, error) {
-	return x509.MarshalPKIXPublicKey(publicKey)
+func MarshalPublicKey(publicKey crypto.VerifyKey) ([]byte, error) {
+	return plugin.MarshalPKIXPublicKey(publicKey.Bytes(), publicKey.GetKeyInfo())
 }
 
 // UnmarshalPublicKey unmarshal a der to public key
-func UnmarshalPublicKey(derBytes []byte) (pub interface{}, err error) {
-	key, err := x509.ParsePKIXPublicKey(derBytes)
-	return key, err
+func UnmarshalPublicKey(engine crypto.Engine, derBytes []byte) (pub crypto.VerifyKey, err error) {
+	//parse der
+	rawpub, mode, err := plugin.ParsePKIXPublicKey(derBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse pkix pub error: %v", err.Error())
+	}
+	return engine.GetVerifyKey(rawpub, mode)
 }

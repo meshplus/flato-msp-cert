@@ -1,9 +1,11 @@
 package x509
 
 import (
-	"crypto"
 	"encoding/asn1"
+	"encoding/binary"
 	"errors"
+	"github.com/meshplus/crypto"
+	"github.com/meshplus/flato-msp-cert/plugin"
 	"github.com/meshplus/flato-msp-cert/primitives/x509/pkix"
 	"io"
 	"net"
@@ -21,8 +23,8 @@ type CertificateRequest struct {
 	Signature          []byte
 	SignatureAlgorithm SignatureAlgorithm
 
-	PublicKeyAlgorithm PublicKeyAlgorithm
-	PublicKey          interface{}
+	PublicKeyAlgorithm plugin.PublicKeyAlgorithm
+	PublicKey          crypto.VerifyKey
 
 	Subject pkix.Name
 
@@ -146,28 +148,23 @@ func parseCSRExtensions(rawAttributes []asn1.RawValue) ([]pkix.Extension, error)
 //
 // All keys types that are implemented via crypto.Signer are supported (This
 // includes *rsa.PublicKey and *ecdsa.PublicKey.)
-func CreateCertificateRequest(rand io.Reader, template *CertificateRequest, priv interface{}) (csr []byte, err error) {
-	key, ok := priv.(crypto.Signer)
-	if !ok {
-		return nil, errors.New("x509: certificate private key does not implement crypto.Signer")
-	}
+func CreateCertificateRequest(rand io.Reader, template *CertificateRequest, priv crypto.SignKey) (csr []byte, err error) {
 
 	var hashFunc Hash
 	var sigAlgo pkix.AlgorithmIdentifier
-	hashFunc, sigAlgo, err = signingParamsForPublicKey(key.Public(), template.SignatureAlgorithm)
+	hashFunc, sigAlgo, err = signingParamsForPublicKey(priv, template.SignatureAlgorithm)
 	if err != nil {
 		return nil, err
 	}
 
-	var publicKeyBytes []byte
+	publicKeyBytes := priv.Bytes()
 	var publicKeyAlgorithm pkix.AlgorithmIdentifier
-	publicKeyBytes, publicKeyAlgorithm, err = marshalPublicKey(key.Public())
+	publicKeyAlgorithm, err = plugin.GetPublicKeyAlgorithmFromMode(priv.GetKeyInfo())
 	if err != nil {
 		return nil, err
 	}
 
 	var extensions []pkix.Extension
-
 	if (len(template.DNSNames) > 0 || len(template.EmailAddresses) > 0 || len(template.IPAddresses) > 0 || len(template.URIs) > 0) &&
 		!oidInExtensions(oidExtensionSubjectAltName, template.ExtraExtensions) {
 		var sanBytes []byte
@@ -274,12 +271,14 @@ func CreateCertificateRequest(rand io.Reader, template *CertificateRequest, priv
 	}
 	tbsCSR.Raw = tbsCSRContents
 
-	h := hashFunc.New()
-	_, _ = h.Write(tbsCSRContents)
-	digest := h.Sum(nil)
-
 	var signature []byte
-	signature, err = key.Sign(rand, digest, hashFunc)
+	if plugin.ModeIsRSAAlgo(priv.GetKeyInfo()) {
+		var hashTypeUsedInPKCS1v15 [4]byte
+		binary.BigEndian.PutUint32(hashTypeUsedInPKCS1v15[:], uint32(hashFunc))
+		signature, err = priv.Sign(append(tbsCSRContents, hashTypeUsedInPKCS1v15[:]...), hashFunc.New(), rand)
+	} else {
+		signature, err = priv.Sign(tbsCSRContents, hashFunc.New(), rand)
+	}
 	if err != nil {
 		return
 	}
@@ -296,7 +295,7 @@ func CreateCertificateRequest(rand io.Reader, template *CertificateRequest, priv
 
 // ParseCertificateRequest parses a single certificate request from the
 // given ASN.1 DER data.
-func ParseCertificateRequest(asn1Data []byte) (*CertificateRequest, error) {
+func ParseCertificateRequest(manager crypto.Engine, asn1Data []byte) (*CertificateRequest, error) {
 	var csr certificateRequest
 
 	rest, err := asn1.Unmarshal(asn1Data, &csr)
@@ -306,10 +305,10 @@ func ParseCertificateRequest(asn1Data []byte) (*CertificateRequest, error) {
 		return nil, asn1.SyntaxError{Msg: "trailing data"}
 	}
 
-	return parseCertificateRequest(&csr)
+	return parseCertificateRequest(manager, &csr)
 }
 
-func parseCertificateRequest(in *certificateRequest) (*CertificateRequest, error) {
+func parseCertificateRequest(manager crypto.Engine, in *certificateRequest) (*CertificateRequest, error) {
 	out := &CertificateRequest{
 		Raw:                      in.Raw,
 		RawTBSCertificateRequest: in.TBSCSR.Raw,
@@ -319,14 +318,18 @@ func parseCertificateRequest(in *certificateRequest) (*CertificateRequest, error
 		Signature:          in.SignatureValue.RightAlign(),
 		SignatureAlgorithm: getSignatureAlgorithmFromAI(in.SignatureAlgorithm),
 
-		PublicKeyAlgorithm: getPublicKeyAlgorithmFromOID(in.TBSCSR.PublicKey.Algorithm.Algorithm),
+		PublicKeyAlgorithm: plugin.GetPublicKeyAlgorithmFromAlgorithmIdentifier(in.TBSCSR.PublicKey.Algorithm),
 
 		Version:    in.TBSCSR.Version,
 		Attributes: parseRawAttributes(in.TBSCSR.RawAttributes),
 	}
 
+	rawPub, mode, perr := plugin.ParsePKIXPublicKey(in.TBSCSR.PublicKey.Raw)
+	if perr != nil {
+		return nil, perr
+	}
 	var err error
-	out.PublicKey, err = parsePublicKey(out.PublicKeyAlgorithm, &in.TBSCSR.PublicKey)
+	out.PublicKey, err = manager.GetVerifyKey(rawPub, mode)
 	if err != nil {
 		return nil, err
 	}

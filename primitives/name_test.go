@@ -1,11 +1,17 @@
 package primitives
 
 import (
+	"github.com/meshplus/crypto"
+	"github.com/meshplus/flato-msp-cert/plugin"
 	"github.com/meshplus/flato-msp-cert/primitives/x509"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
 )
+
+func getEngine(t *testing.T) crypto.Engine {
+	return plugin.GetSoftwareEngine("")
+}
 
 func TestIdentityName_String(t *testing.T) {
 	idName := IdentityName{"Hyperchain", "www.hyperchan.cn", "ecert", "fd26a860237b461d1baec332"}
@@ -18,10 +24,11 @@ func TestGetIdentityNameFromString(t *testing.T) {
 }
 
 func TestGetIdentityNameFromPKIXName(t *testing.T) {
-	certificate, _, err := NewSelfSignedCert("Hyperchain", "www.hyperchan.cn", "ecert", x509.CurveTypeP256, time.Now(),
+	engine := getEngine(t)
+	certificate, _, err := NewSelfSignedCert(engine, "Hyperchain", "www.hyperchan.cn", "ecert", x509.CurveTypeP256, time.Now(),
 		time.Now().Add(time.Hour))
 	assert.Nil(t, err)
-	cert, err := ParseCertificate(certificate)
+	cert, err := ParseCertificate(engine, certificate)
 	assert.Nil(t, err)
 	idName := GetIdentityNameFromPKIXName(cert.Issuer)
 	assert.Equal(t, &IdentityName{O: "Hyperchain", CN: "www.hyperchan.cn", GN: "ecert", SerialNumber: ""}, idName)

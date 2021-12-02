@@ -11,19 +11,14 @@ package x509
 
 import (
 	"bytes"
-	"crypto"
-	"crypto/dsa"
-	"crypto/elliptic"
-	"crypto/rsa"
-	"github.com/meshplus/crypto-standard/asym"
-	"github.com/meshplus/crypto-standard/asym/secp256k1"
+	"encoding/binary"
 	"github.com/meshplus/crypto-standard/hash"
 
 	"encoding/asn1"
 	"errors"
 	"fmt"
+	"github.com/meshplus/flato-msp-cert/plugin"
 	"io"
-	"math/big"
 	"net"
 	"net/url"
 	"strconv"
@@ -31,7 +26,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/meshplus/crypto-gm"
+	"github.com/meshplus/crypto"
 	"github.com/meshplus/flato-msp-cert/primitives/x509/pkix"
 	"golang.org/x/crypto/cryptobyte"
 	cryptobyte_asn1 "golang.org/x/crypto/cryptobyte/asn1"
@@ -49,129 +44,83 @@ const (
 	CurveTypeP256 CurveType = "p256"
 )
 
-type dsaAlgorithmParameters struct {
-	P, Q, G *big.Int
-}
+//type dsaAlgorithmParameters struct {
+//	P, Q, G *big.Int
+//}
 
 type validity struct {
 	NotBefore, NotAfter time.Time
 }
 
+//publicKeyInfo use to parse PKIX publicKey
 type publicKeyInfo struct {
 	Raw       asn1.RawContent
 	Algorithm pkix.AlgorithmIdentifier
 	PublicKey asn1.BitString
 }
 
-// RFC 5280,  4.2.1.1
+// RFC 5280,  4.2.1.1,	AKI
 type authKeyID struct {
 	ID []byte `asn1:"optional,tag:0"`
 }
 
-//PublicKeyAlgorithm public key algorithm
-type PublicKeyAlgorithm int
-
-//signature algorithm
-const (
-	UnknownPublicKeyAlgorithm PublicKeyAlgorithm = iota
-	RSA
-	DSA
-	ECDSA
-	// Guomi SM2 algorithm
-	SM2
-)
-
-var publicKeyAlgoName = [...]string{
-	RSA:   "RSA",
-	DSA:   "DSA",
-	ECDSA: "ECDSA",
-	// Guomi SM2 algorithm
-	SM2: "SM2",
-}
-
-func (algo PublicKeyAlgorithm) String() string {
-	if 0 < algo && int(algo) < len(publicKeyAlgoName) {
-		return publicKeyAlgoName[algo]
-	}
-	return strconv.Itoa(int(algo))
-}
-
-// pssParameters reflects the parameters in an AlgorithmIdentifier that
-// specifies RSA PSS. See https://tools.ietf.org/html/rfc3447#appendix-A.2.3
-type pssParameters struct {
-	// The following three fields are not marked as
-	// optional because the default values specify SHA-1,
-	// which is no longer suitable for use in signatures.
-	Hash         pkix.AlgorithmIdentifier `asn1:"explicit,tag:0"`
-	MGF          pkix.AlgorithmIdentifier `asn1:"explicit,tag:1"`
-	SaltLength   int                      `asn1:"explicit,tag:2"`
-	TrailerField int                      `asn1:"optional,explicit,tag:3,default:1"`
-}
-
-// rsaPSSParameters returns an asn1.RawValue suitable for use as the Parameters
-// in an AlgorithmIdentifier that specifies RSA PSS.
-func rsaPSSParameters(hashFunc crypto.Hash) asn1.RawValue {
-	var hashOID asn1.ObjectIdentifier
-
-	switch hashFunc {
-	case crypto.SHA256:
-		hashOID = oidSHA256
-	case crypto.SHA384:
-		hashOID = oidSHA384
-	case crypto.SHA512:
-		hashOID = oidSHA512
-	}
-
-	params := pssParameters{
-		Hash: pkix.AlgorithmIdentifier{
-			Algorithm:  hashOID,
-			Parameters: asn1.NullRawValue,
-		},
-		MGF: pkix.AlgorithmIdentifier{
-			Algorithm: oidMGF1,
-		},
-		SaltLength:   hashFunc.Size(),
-		TrailerField: 1,
-	}
-
-	mgf1Params := pkix.AlgorithmIdentifier{
-		Algorithm:  hashOID,
-		Parameters: asn1.NullRawValue,
-	}
-
-	var err error
-	params.MGF.Parameters.FullBytes, err = asn1.Marshal(mgf1Params)
-	if err != nil {
-		panic(err)
-	}
-
-	serialized, err := asn1.Marshal(params)
-	if err != nil {
-		panic(err)
-	}
-
-	return asn1.RawValue{FullBytes: serialized}
-}
-
-// ErrUnsupportedAlgorithm results from attempting to perform an operation that
-// involves algorithms that are not currently implemented.
-var ErrUnsupportedAlgorithm = errors.New("x509: cannot verify signature: algorithm unimplemented")
-
-//InsecureAlgorithmError An InsecureAlgorithmError
-type InsecureAlgorithmError SignatureAlgorithm
-
-func (e InsecureAlgorithmError) Error() string {
-	return fmt.Sprintf("x509: cannot verify signature: insecure algorithm %v", SignatureAlgorithm(e))
-}
-
-// ConstraintViolationError results when a requested usage is not permitted by
-// a certificate. For example: checking a signature when the public key isn't a
-// certificate signing key.
-type ConstraintViolationError struct{}
-
-func (ConstraintViolationError) Error() string {
-	return "x509: invalid signature: parent certificate cannot sign this kind of certificate"
-}
+//
+//// pssParameters reflects the parameters in an AlgorithmIdentifier that
+//// specifies RSA PSS. See https://tools.ietf.org/html/rfc3447#appendix-A.2.3
+//type pssParameters struct {
+//	// The following three fields are not marked as
+//	// optional because the default values specify SHA-1,
+//	// which is no longer suitable for use in signatures.
+//	Hash         pkix.AlgorithmIdentifier `asn1:"explicit,tag:0"`
+//	MGF          pkix.AlgorithmIdentifier `asn1:"explicit,tag:1"`
+//	SaltLength   int                      `asn1:"explicit,tag:2"`
+//	TrailerField int                      `asn1:"optional,explicit,tag:3,default:1"`
+//}
+//
+//// rsaPSSParameters returns an asn1.RawValue suitable for use as the Parameters
+//// in an AlgorithmIdentifier that specifies RSA PSS.
+//func rsaPSSParameters(hashFunc std.Hash) asn1.RawValue {
+//	var hashOID asn1.ObjectIdentifier
+//
+//	switch hashFunc {
+//	case std.SHA256:
+//		hashOID = oidSHA256
+//	case std.SHA384:
+//		hashOID = oidSHA384
+//	case std.SHA512:
+//		hashOID = oidSHA512
+//	}
+//
+//	params := pssParameters{
+//		Hash: pkix.AlgorithmIdentifier{
+//			Algorithm:  hashOID,
+//			Parameters: asn1.NullRawValue,
+//		},
+//		MGF: pkix.AlgorithmIdentifier{
+//			Algorithm: oidMGF1,
+//		},
+//		SaltLength:   hashFunc.Size(),
+//		TrailerField: 1,
+//	}
+//
+//	mgf1Params := pkix.AlgorithmIdentifier{
+//		Algorithm:  hashOID,
+//		Parameters: asn1.NullRawValue,
+//	}
+//
+//	var err error
+//	params.MGF.Parameters.FullBytes, err = asn1.Marshal(mgf1Params)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	serialized, err := asn1.Marshal(params)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	return asn1.RawValue{FullBytes: serialized}
+//}
 
 //Equal compare to certificate
 func (c *Certificate) Equal(other *Certificate) bool {
@@ -250,7 +199,7 @@ func (c *Certificate) CheckSignatureFrom(parent *Certificate) error {
 		return ConstraintViolationError{}
 	}
 
-	if parent.PublicKeyAlgorithm == UnknownPublicKeyAlgorithm {
+	if parent.PublicKeyAlgorithm == plugin.UnknownPublicKeyAlgorithm {
 		return ErrUnsupportedAlgorithm
 	}
 
@@ -285,26 +234,11 @@ func (c *Certificate) getSANExtension() []byte {
 	return nil
 }
 
-func signaturePublicKeyAlgoMismatchError(expectedPubKeyAlgo PublicKeyAlgorithm, pubKey interface{}) error {
-	return fmt.Errorf("x509: signature algorithm specifies an %s public key, but have public key of type %T", expectedPubKeyAlgo.String(), pubKey)
-}
-
 // CheckSignature verifies that signature is a valid signature over signed from
 // a crypto.PublicKey.
-func checkSignature(algo SignatureAlgorithm, signed, signature []byte, parentPublicKey crypto.PublicKey) (err error) {
-	// Add verify guomi signature support
-	if algo == SM3WithSM2 {
-		pk, ok := parentPublicKey.(*gm.SM2PublicKey)
-		if ok {
-			//_, err := pk.VerifySignature(signature, guomi.SignHashSM3(pk.X, pk.Y, signed))
-			_, err := pk.Verify(nil, signature, gm.HashBeforeSM2(pk, signed))
-			return err
-		}
-		return signaturePublicKeyAlgoMismatchError(SM2, pk)
-	}
-
+func checkSignature(algo SignatureAlgorithm, signed, signature []byte, parentPublicKey crypto.VerifyKey) (err error) {
 	var hashType Hash
-	var pubKeyAlgo PublicKeyAlgorithm
+	var pubKeyAlgo plugin.PublicKeyAlgorithm
 
 	for _, details := range signatureAlgorithmDetails {
 		if details.algo == algo {
@@ -320,63 +254,50 @@ func checkSignature(algo SignatureAlgorithm, signed, signature []byte, parentPub
 		return InsecureAlgorithmError(algo)
 	}
 
+	mode := parentPublicKey.GetKeyInfo()
+	switch {
+	case plugin.ModeIsRSAAlgo(mode):
+		if pubKeyAlgo != plugin.RSA {
+			return signaturePublicKeyAlgoMismatchError(pubKeyAlgo, parentPublicKey)
+		}
+		//todo fix
+		//if algo.isRSAPSS() {
+		//	return rsa.VerifyPSS(pub, crypto.Hash(hashType), digest, signature, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash})
+		//}
+	case plugin.ModeIsECDSAAlgo(mode):
+		if pubKeyAlgo != plugin.ECDSA {
+			return signaturePublicKeyAlgoMismatchError(pubKeyAlgo, parentPublicKey)
+		}
+	case mode == crypto.Sm2p256v1:
+		if pubKeyAlgo != plugin.SM2 {
+			return signaturePublicKeyAlgoMismatchError(pubKeyAlgo, parentPublicKey)
+		}
+	default:
+		return ErrUnsupportedAlgorithm
+	}
+
 	if !hashType.Available() {
 		return ErrUnsupportedAlgorithm
 	}
 	h := hashType.New()
-	_, _ = h.Write(signed)
-	digest := h.Sum(nil)
-
-	switch pub := parentPublicKey.(type) {
-	case *rsa.PublicKey:
-		if pubKeyAlgo != RSA {
-			return signaturePublicKeyAlgoMismatchError(pubKeyAlgo, pub)
-		}
-		if algo.isRSAPSS() {
-			return rsa.VerifyPSS(pub, crypto.Hash(hashType), digest, signature, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash})
-		}
-		return rsa.VerifyPKCS1v15(pub, crypto.Hash(hashType), digest, signature)
-
-	case *dsa.PublicKey:
-		if pubKeyAlgo != DSA {
-			return signaturePublicKeyAlgoMismatchError(pubKeyAlgo, pub)
-		}
-		dsaSig := new(dsaSignature)
-		if rest, err := asn1.Unmarshal(signature, dsaSig); err != nil {
-			return err
-		} else if len(rest) != 0 {
-			return errors.New("x509: trailing data after DSA signature")
-		}
-		if dsaSig.R.Sign() <= 0 || dsaSig.S.Sign() <= 0 {
-			return errors.New("x509: DSA signature contained zero or negative values")
-		}
-		if !dsa.Verify(pub, digest, dsaSig.R, dsaSig.S) {
-			return errors.New("x509: DSA verification failure")
-		}
-		return
-	case *asym.ECDSAPublicKey:
-		if pubKeyAlgo != ECDSA {
-			return signaturePublicKeyAlgoMismatchError(pubKeyAlgo, pub)
-		}
-		if b, _ := pub.Verify(nil, signature, digest); !b {
-			return errors.New("x509: ECDSA verification failure")
-		}
+	if hashType == SM3WithPublicKey {
+		_, _ = h.Write(parentPublicKey.Bytes())
+	}
+	if plugin.ModeIsRSAAlgo(parentPublicKey.GetKeyInfo()) {
+		var hashTypeUsedInPKCS1v15 [4]byte
+		binary.BigEndian.PutUint32(hashTypeUsedInPKCS1v15[:], uint32(hashType))
+		signed = append(signed, hashTypeUsedInPKCS1v15[:]...)
+	}
+	if parentPublicKey.Verify(signed, h, signature) {
 		return
 	}
-	return ErrUnsupportedAlgorithm
+	return fmt.Errorf("verify signature error : %v", algo.String())
 }
 
 // CheckCRLSignature checks that the signature in crl is from c.
 func (c *Certificate) CheckCRLSignature(crl *CertificateList) error {
 	algo := getSignatureAlgorithmFromAI(crl.SignatureAlgorithm)
 	return c.CheckSignature(algo, crl.TBSCertList.Raw, crl.SignatureValue.RightAlign())
-}
-
-//UnhandledCriticalExtension unhandled critical extension
-type UnhandledCriticalExtension struct{}
-
-func (h UnhandledCriticalExtension) Error() string {
-	return "x509: unhandled critical extension"
 }
 
 type basicConstraints struct {
@@ -413,105 +334,6 @@ type distributionPoint struct {
 type distributionPointName struct {
 	FullName     []asn1.RawValue  `asn1:"optional,tag:0"`
 	RelativeName pkix.RDNSequence `asn1:"optional,tag:1"`
-}
-
-func parsePublicKey(algo PublicKeyAlgorithm, keyData *publicKeyInfo) (interface{}, error) {
-	asn1Data := keyData.PublicKey.RightAlign()
-	switch algo {
-	case RSA:
-		// RSA public keys must have a NULL in the parameters
-		// (https://tools.ietf.org/html/rfc3279#section-2.3.1).
-		if !bytes.Equal(keyData.Algorithm.Parameters.FullBytes, asn1.NullBytes) {
-			return nil, errors.New("x509: RSA key missing NULL parameters")
-		}
-
-		p := new(pkcs1PublicKey)
-		rest, err := asn1.Unmarshal(asn1Data, p)
-		if err != nil {
-			return nil, err
-		}
-		if len(rest) != 0 {
-			return nil, errors.New("x509: trailing data after RSA public key")
-		}
-
-		if p.N.Sign() <= 0 {
-			return nil, errors.New("x509: RSA modulus is not a positive number")
-		}
-		if p.E <= 0 {
-			return nil, errors.New("x509: RSA public exponent is not a positive number")
-		}
-
-		pub := &rsa.PublicKey{
-			E: p.E,
-			N: p.N,
-		}
-		return pub, nil
-	case DSA:
-		var p *big.Int
-		rest, err := asn1.Unmarshal(asn1Data, &p)
-		if err != nil {
-			return nil, err
-		}
-		if len(rest) != 0 {
-			return nil, errors.New("x509: trailing data after DSA public key")
-		}
-		paramsData := keyData.Algorithm.Parameters.FullBytes
-		params := new(dsaAlgorithmParameters)
-		rest, err = asn1.Unmarshal(paramsData, params)
-		if err != nil {
-			return nil, err
-		}
-		if len(rest) != 0 {
-			return nil, errors.New("x509: trailing data after DSA parameters")
-		}
-		if p.Sign() <= 0 || params.P.Sign() <= 0 || params.Q.Sign() <= 0 || params.G.Sign() <= 0 {
-			return nil, errors.New("x509: zero or negative DSA parameter")
-		}
-		pub := &dsa.PublicKey{
-			Parameters: dsa.Parameters{
-				P: params.P,
-				Q: params.Q,
-				G: params.G,
-			},
-			Y: p,
-		}
-		return pub, nil
-	case ECDSA:
-		paramsData := keyData.Algorithm.Parameters.FullBytes
-		// asn1.Marshal(asn1.ObjectIdentifier{1, 2, 156, 10197, 1, 301})
-		//See keygen's MarshalSm2PublicKey function
-		//Enter the if description is the SM2 public key
-		if bytes.Equal([]byte{6, 8, 42, 129, 28, 207, 85, 1, 130, 45}, paramsData) {
-			pub := new(gm.SM2PublicKey).FromBytes(asn1Data)
-			return pub, nil
-		}
-		namedCurveOID := new(asn1.ObjectIdentifier)
-		rest, err := asn1.Unmarshal(paramsData, namedCurveOID)
-		if err != nil {
-			return nil, err
-		}
-		if len(rest) != 0 {
-			return nil, errors.New("x509: trailing data after ECDSA parameters")
-		}
-		namedCurve := namedCurveFromOID(*namedCurveOID)
-		if namedCurve == nil {
-			return nil, errors.New("x509: unsupported elliptic curve")
-		}
-
-		x, y := elliptic.Unmarshal(namedCurve, asn1Data)
-		if x == nil {
-			return nil, errors.New("x509: failed to unmarshal elliptic curve point")
-		}
-		pub := &asym.ECDSAPublicKey{
-			Curve: namedCurve,
-			X:     x,
-			Y:     y,
-		}
-
-		return pub, nil
-	default:
-		return nil, nil
-	}
 }
 
 func forEachSAN(extension []byte, callback func(tag int, data []byte) error) error {
@@ -778,7 +600,7 @@ func parseNameConstraintsExtension(out *Certificate, e pkix.Extension) (unhandle
 
 // ParseCertificates parses one or more certificates from the given ASN.1 DER
 // data. The certificates must be concatenated with no intermediate padding.
-func ParseCertificates(asn1Data []byte) ([]*Certificate, error) {
+func ParseCertificates(manager crypto.Engine, asn1Data []byte) ([]*Certificate, error) {
 	var v []*certificate
 
 	for len(asn1Data) > 0 {
@@ -793,7 +615,7 @@ func ParseCertificates(asn1Data []byte) ([]*Certificate, error) {
 
 	ret := make([]*Certificate, len(v))
 	for i, ci := range v {
-		cert, err := parseCertificate(ci)
+		cert, err := parseCertificate(manager, ci)
 		if err != nil {
 			return nil, err
 		}
@@ -1166,48 +988,32 @@ func subjectBytes(cert *Certificate) ([]byte, error) {
 // signingParamsForPublicKey returns the parameters to use for signing with
 // priv. If requestedSigAlgo is not zero then it overrides the default
 // signature algorithm.
-func signingParamsForPublicKey(pub interface{}, requestedSigAlgo SignatureAlgorithm) (hashFunc Hash, sigAlgo pkix.AlgorithmIdentifier, err error) {
-	var pubType PublicKeyAlgorithm
-
-	switch pub := pub.(type) {
-	case *rsa.PublicKey:
-		pubType = RSA
+func signingParamsForPublicKey(pub crypto.VerifyKey, requestedSigAlgo SignatureAlgorithm) (hashFunc Hash, sigAlgo pkix.AlgorithmIdentifier, err error) {
+	var pubType plugin.PublicKeyAlgorithm
+	switch pub.GetKeyInfo() {
+	case crypto.Rsa2048, crypto.Rsa3072, crypto.Rsa4096:
+		pubType = plugin.RSA
 		hashFunc = SHA256
 		sigAlgo.Algorithm = oidSignatureSHA256WithRSA
 		sigAlgo.Parameters = asn1.NullRawValue
-
-	case *asym.ECDSAPublicKey:
-		pubType = ECDSA
-		switch pub.Curve {
-		case elliptic.P224(), elliptic.P256(), secp256k1.S256():
-			hashFunc = SHA256
-			sigAlgo.Algorithm = oidSignatureECDSAWithSHA256
-		case elliptic.P384():
-			hashFunc = SHA384
-			sigAlgo.Algorithm = oidSignatureECDSAWithSHA384
-		case elliptic.P521():
-			hashFunc = SHA512
-			sigAlgo.Algorithm = oidSignatureECDSAWithSHA512
-		default:
-			err = errors.New("x509: unknown elliptic curve")
-		}
-	case *gm.SM2PublicKey:
-		pubType = SM2
-		hashFunc = SM3
+	case crypto.Secp256k1, crypto.Secp256r1:
+		pubType = plugin.ECDSA
+		hashFunc = SHA256
+		sigAlgo.Algorithm = oidSignatureECDSAWithSHA256
+	case crypto.Secp384r1:
+		pubType = plugin.ECDSA
+		hashFunc = SHA384
+		sigAlgo.Algorithm = oidSignatureECDSAWithSHA384
+	case crypto.Secp521r1:
+		pubType = plugin.ECDSA
+		hashFunc = SHA512
+		sigAlgo.Algorithm = oidSignatureECDSAWithSHA512
+	case crypto.Sm2p256v1:
+		pubType = plugin.SM2
+		hashFunc = SM3WithPublicKey
 		sigAlgo.Algorithm = oidSignatureSM3WithSM2
-		//fixme : maybe we do not need curve
-		switch pub.Curve {
-		case gm.GetSm2Curve():
-			hashFunc = SM3
-			sigAlgo.Algorithm = oidSignatureSM3WithSM2
-		default:
-			err = errors.New("x509: unknown SM2 curve")
-		}
 	default:
-		err = errors.New("x509: only RSA and ECDSA keys supported")
-	}
-
-	if err != nil {
+		err = fmt.Errorf("x509: only RSA, SM2 and ECDSA keys supported: %v", pub.GetKeyInfo())
 		return
 	}
 
@@ -1227,9 +1033,9 @@ func signingParamsForPublicKey(pub interface{}, requestedSigAlgo SignatureAlgori
 				err = errors.New("x509: cannot sign with hash function requested")
 				return
 			}
-			if requestedSigAlgo.isRSAPSS() {
-				sigAlgo.Parameters = rsaPSSParameters(crypto.Hash(hashFunc))
-			}
+			//if requestedSigAlgo.isRSAPSS() {
+			//	sigAlgo.Parameters = rsaPSSParameters(std.Hash(hashFunc))
+			//}
 			found = true
 			break
 		}
@@ -1265,49 +1071,55 @@ var emptyASN1Subject = []byte{0x30, 0}
 // The AuthorityKeyID will be taken from the SubjectKeyID of parent, if any,
 // unless the resulting certificate is self-signed. Otherwise the value from
 // template will be used.
-func CreateCertificate(rand io.Reader, template, parent *Certificate, pub crypto.PublicKey, priv crypto.Signer) (cert []byte, err error) {
-
+func CreateCertificate(rand io.Reader, template, parent *Certificate, subjectPub crypto.VerifyKey, parentPriv crypto.SignKey) (cert []byte, err error) {
+	//检查序列号，必须指定
 	if template.SerialNumber == nil {
 		return nil, errors.New("x509: no SerialNumber given")
 	}
 
-	hashFunc, signatureAlgorithm, err := signingParamsForPublicKey(priv.Public(), template.SignatureAlgorithm)
+	//检查私钥类型和template中声明的是否一致，根据一定策略选择hash和签名算法(OID)
+	hashFunc, signatureAlgorithm, serr := signingParamsForPublicKey(parentPriv, template.SignatureAlgorithm)
+	if serr != nil {
+		return nil, serr
+	}
+
+	//marshal公钥
+	var publicKeyAlgorithm pkix.AlgorithmIdentifier
+	publicKeyBytes := subjectPub.Bytes()
+	publicKeyAlgorithm, err = plugin.GetPublicKeyAlgorithmFromMode(subjectPub.GetKeyInfo())
 	if err != nil {
 		return nil, err
 	}
+	encodedPublicKey := asn1.BitString{BitLength: len(publicKeyBytes) * 8, Bytes: publicKeyBytes}
 
-	publicKeyBytes, publicKeyAlgorithm, err := marshalPublicKey(pub)
-	if err != nil {
-		return nil, err
-	}
-
-	SKI := template.SubjectKeyID
-	AKI := template.AuthorityKeyID
+	//设置SKI和AKI, 如果template没有指定SKI, 使用SHA1计算
+	SKI, AKI := template.SubjectKeyID, template.AuthorityKeyID
 	if len(template.SubjectKeyID) == 0 {
 		hasher := hash.NewHasher(hash.SHA1)
 		SKI, _ = hasher.Hash(publicKeyBytes)
 	}
-
-	if len(template.AuthorityKeyID) == 0 && len(parent.SubjectKeyID) > 0 {
+	//self-signed certificate should not contain default authority key id
+	if len(template.AuthorityKeyID) == 0 && template != parent && len(parent.SubjectKeyID) > 0 {
 		AKI = parent.SubjectKeyID
 	}
 
+	//marshal Subject和Issuer部分
 	asn1Issuer, err := subjectBytes(parent)
 	if err != nil {
 		return
 	}
-
 	asn1Subject, err := subjectBytes(template)
 	if err != nil {
 		return
 	}
 
+	//marshal extensions
 	extensions, err := buildExtensions(template, bytes.Equal(asn1Subject, emptyASN1Subject), AKI, SKI)
 	if err != nil {
 		return
 	}
 
-	encodedPublicKey := asn1.BitString{BitLength: len(publicKeyBytes) * 8, Bytes: publicKeyBytes}
+	//marshal 被签名部分
 	c := tbsCertificate{
 		Version:            2,
 		SerialNumber:       template.SerialNumber,
@@ -1319,35 +1131,35 @@ func CreateCertificate(rand io.Reader, template, parent *Certificate, pub crypto
 		Extensions:         extensions,
 	}
 
-	tbsCertContents, err := asn1.Marshal(c)
+	c.Raw, err = asn1.Marshal(c)
 	if err != nil {
 		return
 	}
-	c.Raw = tbsCertContents
-	var digest []byte
-	if p, ok := priv.(*gm.SM2PrivateKey); ok {
-		digest = gm.HashBeforeSM2(&p.PublicKey, tbsCertContents)
-	} else {
-		h := hashFunc.New()
-		_, _ = h.Write(tbsCertContents)
-		digest = h.Sum(nil)
-	}
 
-	var signerOpts crypto.SignerOpts
-	if template.SignatureAlgorithm != 0 && template.SignatureAlgorithm.isRSAPSS() {
-		signerOpts = &rsa.PSSOptions{
-			SaltLength: rsa.PSSSaltLengthEqualsHash,
-			Hash:       crypto.Hash(hashFunc),
-		}
-	} else if template.SignatureAlgorithm != 0 {
-		signerOpts = crypto.SHA256
-	}
-
+	//签名
 	var signature []byte
-	signature, err = priv.Sign(rand, digest, signerOpts)
+	//pkcs1v15
+	if plugin.ModeIsRSAAlgo(parentPriv.GetKeyInfo()) {
+		var hashTypeUsedInPKCS1v15 [4]byte
+		binary.BigEndian.PutUint32(hashTypeUsedInPKCS1v15[:], uint32(hashFunc))
+		signature, err = parentPriv.Sign(append(c.Raw, hashTypeUsedInPKCS1v15[:]...), hashFunc.New(), rand)
+	} else {
+		signature, err = parentPriv.Sign(c.Raw, hashFunc.New(), rand)
+	}
 	if err != nil {
 		return
 	}
+
+	//var signerOpts std.SignerOpts
+	//if template.SignatureAlgorithm != 0 && template.SignatureAlgorithm.isRSAPSS() {
+	//	signerOpts = &rsa.PSSOptions{
+	//		SaltLength: rsa.PSSSaltLengthEqualsHash,
+	//		Hash:       crypto.Hash(hashFunc),
+	//	}
+	//} else
+	//if template.SignatureAlgorithm != 0 {
+	//	signerOpts = std.SHA256
+	//}
 
 	return asn1.Marshal(certificate{
 		nil,

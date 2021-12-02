@@ -1,14 +1,11 @@
 package x509
 
 import (
-	"crypto"
-	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"encoding/asn1"
 	"encoding/pem"
-	gm "github.com/meshplus/crypto-gm"
-	"github.com/meshplus/crypto-standard/asym"
+	"fmt"
+	"github.com/meshplus/crypto"
 	"github.com/meshplus/flato-msp-cert/primitives/x509/pkix"
 	"github.com/stretchr/testify/assert"
 	"math/big"
@@ -17,34 +14,19 @@ import (
 )
 
 func TestMarshalCertificateError(t *testing.T) {
+	engine := getEngine(t)
 	certificate := new(Certificate)
-	big := new(big.Int).SetUint64(uint64(10000000))
-	certificate.SerialNumber = big
-	sm2pk, err := gm.GenerateSM2Key()
+	certificate.SerialNumber = new(big.Int).SetUint64(uint64(10000000))
+	_, sm2key, err := engine.CreateSignKey(false, crypto.Sm2p256v1)
 	assert.Nil(t, err)
 	certificate.SignatureAlgorithm = UnknownSignatureAlgorithm
-	certificate.PublicKey = sm2pk.PublicKey
+	certificate.PublicKey = sm2key
 	_, err = MarshalCertificate(certificate)
-	assert.NotNil(t, err)
-
-	certificate.SignatureAlgorithm = SHA256WithRSA
-	certificate.PublicKey = rsa.PublicKey{N: big, E: 10}
-	_, err = MarshalCertificate(certificate)
-	assert.NotNil(t, err)
-
-	certificate.SignatureAlgorithm = ECDSAWithSHA256
-	certificate.PublicKey = asym.ECDSAPublicKey{Curve: elliptic.P256(), X: big, Y: big}
-	_, err = MarshalCertificate(certificate)
-	assert.NotNil(t, err)
-
-	certificate.SignatureAlgorithm = SM3WithSM2
-	certificate.PublicKey = sm2pk.PublicKey
-	_, err = MarshalCertificate(certificate)
-	assert.NotNil(t, err)
+	assert.Equal(t, fmt.Sprint(err), "x509: only RSA, ECDSA and SM2 keys supported")
 
 	certificate.SerialNumber = nil
 	certificate.SignatureAlgorithm = SM3WithSM2
-	certificate.PublicKey = sm2pk.PublicKey
+	certificate.PublicKey = sm2key
 	cert, err := MarshalCertificate(certificate)
 
 	assert.NotNil(t, err)
@@ -54,15 +36,15 @@ func TestMarshalCertificateError(t *testing.T) {
 
 func TestMarshalCertificate(t *testing.T) {
 	var (
-		privKey crypto.Signer
-		pubKey  crypto.PublicKey
+		privKey crypto.SignKey
+		pubKey  crypto.VerifyKey
 	)
-
-	privKeyECDSA, err := asym.GenerateKey(asym.AlgoP256R1)
-	assert.Nil(t, err)
+	engine := getEngine(t)
 	signatureAlgorithm := ECDSAWithSHA256
+	_, privKeyECDSA, err := engine.CreateSignKey(false, crypto.Secp256r1)
+	assert.Nil(t, err)
 	privKey = privKeyECDSA
-	pubKey = privKeyECDSA.Public()
+	pubKey = privKeyECDSA
 
 	testExtKeyUsage := []ExtKeyUsage{ExtKeyUsageClientAuth, ExtKeyUsageServerAuth}
 	testUnknownExtKeyUsage := []asn1.ObjectIdentifier{[]int{1, 2, 3}, []int{2, 59, 1}}
@@ -110,7 +92,7 @@ func TestMarshalCertificate(t *testing.T) {
 	if block != nil {
 		cert = block.Bytes
 	}
-	ca, err := ParseCertificate(cert)
+	ca, err := ParseCertificate(engine, cert)
 	assert.Nil(t, err)
 
 	_, err = MarshalCertificate(ca)
@@ -137,11 +119,11 @@ func TestSubjectBytesWhenMarshal(t *testing.T) {
 	template.Version = cert.Version - 1
 	template.Subject.Names = []pkix.AttributeTypeAndValue{{Type: []int{1, 2, 3}, Value: "111"}, {Type: []int{1, 2, 3}, Value: "222"}}
 
-	_, err := SubjectBytesWhenMarshal(template)
+	_, err := subjectBytesWhenMarshal(template)
 	assert.Nil(t, err)
 
 	template.RawSubject = []byte{1}
-	asn1Subject, err := SubjectBytesWhenMarshal(template)
+	asn1Subject, err := subjectBytesWhenMarshal(template)
 
 	assert.IsType(t, []byte{}, asn1Subject, "SubjectBytesWhenMarshal failed!")
 	assert.Nil(t, err, "SubjectBytesWhenMarshal failed!")
@@ -150,22 +132,19 @@ func TestSubjectBytesWhenMarshal(t *testing.T) {
 func TestSignParamsForPublicKey(t *testing.T) {
 
 	_, _, err := signParamsForPublicKey(0)
-	assert.NotNil(t, err)
+	assert.Equal(t, fmt.Sprint(err), "x509: only RSA, ECDSA and SM2 keys supported")
 
 	_, _, err = signParamsForPublicKey(ECDSAWithSHA384)
 	assert.Nil(t, err)
 
 	_, _, err = signParamsForPublicKey(MD2WithRSA)
-	assert.NotNil(t, err)
+	assert.Equal(t, fmt.Sprint(err), "x509: cannot sign with hash function requested")
 
 	_, _, err = signParamsForPublicKey(ECDSAWithSHA512)
 	assert.Nil(t, err)
 
 	_, _, err = signParamsForPublicKey(ECDSAWithSHA1)
-	assert.NotNil(t, err)
-
-	_, _, err = signParamsForPublicKey(SHA1WithSM2)
-	assert.NotNil(t, err)
+	assert.Equal(t, fmt.Sprint(err), "x509: unknown ecdsa sign algo")
 
 	signatureAlgorithm := ECDSAWithSHA384
 	assert.IsType(t, SM3WithSM2, signatureAlgorithm)

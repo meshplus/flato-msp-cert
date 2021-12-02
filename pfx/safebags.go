@@ -6,12 +6,15 @@
 package pkcs12
 
 import (
-	"crypto"
+	"crypto/elliptic"
 	"encoding/asn1"
 	"errors"
+	"fmt"
+	"github.com/meshplus/crypto"
 	"github.com/meshplus/crypto-gm"
-	"github.com/meshplus/flato-msp-cert/primitives"
-	gmx509 "github.com/meshplus/flato-msp-cert/primitives/x509"
+	"github.com/meshplus/crypto-standard/asym"
+	"github.com/meshplus/crypto-standard/asym/secp256k1"
+	"github.com/meshplus/flato-msp-cert/plugin"
 	"io"
 )
 
@@ -42,8 +45,8 @@ func decodePkcs8ShroudedKeyBag(asn1Data, password []byte) (privateKey interface{
 	if err = unmarshal(pkData, ret); err != nil {
 		return nil, errors.New("pkcs12: error unmarshaling decrypted private key: " + err.Error())
 	}
-
-	if privateKey, err = primitives.UnmarshalPrivateKey(pkData); err != nil {
+	engine := plugin.GetCryptoEngine()
+	if privateKey, err = engine.GetSignKey(pkData, crypto.None); err != nil {
 		return nil, errors.New("pkcs12: error parsing private key: " + err.Error())
 	}
 
@@ -52,15 +55,26 @@ func decodePkcs8ShroudedKeyBag(asn1Data, password []byte) (privateKey interface{
 
 func encodePkcs8ShroudedKeyBag(rand io.Reader, privateKey crypto.Signer, password []byte) (asn1Data []byte, err error) {
 	var pkData []byte
-	key, ok := privateKey.(*gm.SM2PrivateKey)
-	if !ok {
-		if pkData, err = gmx509.MarshalPKCS8PrivateKey(privateKey); err != nil {
-			return nil, errors.New("pkcs12: error encoding PKCS#8 private key: " + err.Error())
+	b, err := privateKey.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	engine := plugin.GetCryptoEngine()
+	var mode int
+	switch key := privateKey.(type) {
+	case *gm.SM2PrivateKey:
+		mode = crypto.Sm2p256v1
+	case *asym.ECDSAPrivateKey:
+		if key.Curve == secp256k1.S256() {
+			mode = crypto.Secp256k1
+		} else if key.Curve == elliptic.P256() {
+			mode = crypto.Secp256r1
 		}
-	} else {
-		if pkData, err = primitives.MarshalPrivateKey(key); err != nil {
-			return nil, err
-		}
+	}
+
+	pkData, err = engine.ImportSignKey(b, mode)
+	if err != nil {
+		return nil, fmt.Errorf("marshal key failed, reason:%v", err)
 	}
 
 	randomSalt := make([]byte, 8)

@@ -1,8 +1,20 @@
 package primitives
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"github.com/meshplus/flato-msp-cert/primitives/x509/pkix"
 	"strings"
+)
+
+const (
+	//Version cert organization version
+	Version = "version"
+	//VP cert organization vp, nvp band node
+	VP = "vp"
+	//Platform cert organization platform, use flato
+	Platform = "platform"
 )
 
 //IdentityName identity name
@@ -71,6 +83,12 @@ func GetIdentityNameFromPKIXName(name pkix.Name) *IdentityName {
 	n.O = name.Organization[0]
 	n.CN = name.CommonName
 	n.SerialNumber = name.SerialNumber
+	//now use OU, Keep GN for compatibility GN, OU string
+	if len(name.OrganizationalUnit) > 0 && NewCertType(name.OrganizationalUnit[0]) != UnknownCertType {
+		n.GN = name.OrganizationalUnit[0]
+		return n
+	}
+
 	var ok bool
 	for i := range name.Names {
 		if name.Names[i].Type.Equal(oid) {
@@ -81,4 +99,19 @@ func GetIdentityNameFromPKIXName(name pkix.Name) *IdentityName {
 		}
 	}
 	return n
+}
+
+//ParseOrganization get Organization map
+func ParseOrganization(idName *IdentityName) (map[string]string, error) {
+	encode := idName.O
+	o, innerErr := base64.StdEncoding.DecodeString(encode)
+	if innerErr != nil {
+		return nil, fmt.Errorf("base64 decode cert failed, reason: %v", innerErr)
+	}
+	oMap := make(map[string]string)
+	innerErr = json.Unmarshal(o, &oMap)
+	if innerErr != nil {
+		return nil, fmt.Errorf("json unmarshal cert failed, reason : %v", innerErr)
+	}
+	return oMap, nil
 }

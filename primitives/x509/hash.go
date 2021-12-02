@@ -3,33 +3,50 @@ package x509
 import (
 	"crypto"
 	"crypto/md5"
-	"crypto/sha1"
-	"crypto/sha256"
 	"crypto/sha512"
 	"github.com/meshplus/crypto-gm"
+	h "github.com/meshplus/crypto-standard/hash"
 	"golang.org/x/crypto/ripemd160"
-	"golang.org/x/crypto/sha3"
 	"hash"
 	"strconv"
 )
 
 func init() {
 	RegisterHash(MD4, nil)
-	RegisterHash(MD5, md5.New)
-	RegisterHash(SHA1, sha1.New)
-	RegisterHash(SHA224, sha256.New224)
-	RegisterHash(SHA256, sha256.New)
-	RegisterHash(SHA384, sha512.New384)
-	RegisterHash(SHA512, sha512.New)
 	RegisterHash(MD5SHA1, nil)
+	RegisterHash(MD5, md5.New)
+	RegisterHash(SHA1, func() hash.Hash {
+		return h.NewHasher(h.SHA1)
+	})
+	RegisterHash(SHA224, func() hash.Hash {
+		return h.NewHasher(h.SHA2_224)
+	})
+	RegisterHash(SHA256, func() hash.Hash {
+		return h.NewHasher(h.SHA2_256)
+	})
+	RegisterHash(SHA384, func() hash.Hash {
+		return h.NewHasher(h.SHA2_384)
+	})
+	RegisterHash(SHA512, func() hash.Hash {
+		return h.NewHasher(h.SHA2_512)
+	})
 	RegisterHash(RIPEMD160, ripemd160.New)
-	RegisterHash(SHA3_224, sha3.New224)
-	RegisterHash(SHA3_256, sha3.New256)
-	RegisterHash(SHA3_384, sha3.New384)
-	RegisterHash(SHA3_512, sha3.New512)
+	RegisterHash(SHA3_224, func() hash.Hash {
+		return h.NewHasher(h.SHA2_224)
+	})
+	RegisterHash(SHA3_256, func() hash.Hash {
+		return h.NewHasher(h.SHA2_256)
+	})
+	RegisterHash(SHA3_384, func() hash.Hash {
+		return h.NewHasher(h.SHA3_384)
+	})
+	RegisterHash(SHA3_512, func() hash.Hash {
+		return h.NewHasher(h.SHA2_512)
+	})
 	RegisterHash(SHA512_224, sha512.New512_224)
 	RegisterHash(SHA512_256, sha512.New512_256)
 	RegisterHash(SM3, gm.GetSM3Hasher)
+	RegisterHash(SM3WithPublicKey, gm.NewSM3IDHasher)
 }
 
 //RegisterHash register hash
@@ -114,5 +131,6 @@ const (
 	SHA512_224                 // import crypto/sha512
 	SHA512_256                 // import crypto/sha512
 	SM3
+	SM3WithPublicKey
 	maxHash
 )

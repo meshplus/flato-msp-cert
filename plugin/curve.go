@@ -1,4 +1,4 @@
-package x509
+package plugin
 
 import (
 	"crypto/elliptic"
@@ -30,6 +30,7 @@ var (
 	oidNamedCurveP521    = asn1.ObjectIdentifier{1, 3, 132, 0, 35}
 	oidNamedCurveK256    = asn1.ObjectIdentifier{1, 3, 132, 0, 10}         //secp256k1
 	oidNamedCurveP256Sm2 = asn1.ObjectIdentifier{1, 2, 156, 10197, 1, 301} //GMT0006-2012
+	oidSignatureEd25519  = asn1.ObjectIdentifier{1, 3, 101, 112}           //ed25519
 )
 
 func namedCurveFromOID(oid asn1.ObjectIdentifier) elliptic.Curve {
