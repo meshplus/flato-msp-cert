@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+<a name="0.1.1"></a>
+## [0.1.1](http://git.hyperchain.cn/meshplus/crypto/compare/v0.1.0...v0.1.1) (2021-12-02)
+
+
+### Features
+
+* **all:** update code version ([5310be2](http://git.hyperchain.cn/meshplus/crypto/commits/5310be2))
+* **all:** update code version ([22ec619](http://git.hyperchain.cn/meshplus/crypto/commits/22ec619))
+* **x509:** update code version ([0977ba4](http://git.hyperchain.cn/meshplus/crypto/commits/0977ba4))
+
+
+
 <a name="0.1.0"></a>
 # 0.1.0 (2021-01-12)
 
